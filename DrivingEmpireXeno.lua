@@ -3,10 +3,16 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CaptureItem")
-local LocalPlayer = game.Players.LocalPlayer
 local PathfindingService = game:GetService("PathfindingService")
 local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = game.Players.LocalPlayer
+
+-- Remotes
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local bustStart = remotes:WaitForChild("AttemptATMBustStart")
+local bustEnd = remotes:WaitForChild("AttemptATMBustComplete")
+local RemoteStart = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestStartJobSession")
+local RemoteEnd = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestEndJobSession")
 
 local antiAfkConnection
 
@@ -629,9 +635,6 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ---------- Job Joiner ----------------------
-
-local RemoteStart = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestStartJobSession")
-local RemoteEnd = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestEndJobSession")
 local JobActions = TabJobs:CreateSection("Jobs Joiner")
 
 -- PRZYCISK: POLICE JOB
@@ -1116,347 +1119,290 @@ task.spawn(function()
     end
 end)
 
------------- Test Tab --------------
+------------- Farmy -----------------
+local ATMFlag = { Search = false }
+local noclipConnection = nil
 
-local function removeAllPlatforms()
-    for _, object in pairs(workspace:GetChildren()) do
-        if object.Name == "DeltaCorePlatform" then
-            object:Destroy()
-        end
-    end
-end
-
-local function setWeight(isHeavy)
-    local character = LocalPlayer.Character
-    if character then
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                if isHeavy then
-                    part.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
-                else
-                    part.CustomPhysicalProperties = nil
-                end
-            end
-        end
-    end
-end
+local spawnPos = Vector3.new(-315.4537353515625, 17.595108032226562, -1660.684326171875)
 local platformPositions = {
     Vector3.new(-978.8837890625, -166, 313.3407897949219),
     Vector3.new(-484.3203430175781, -166, -1226.457275390625),
     Vector3.new(220.6251220703125, -166, 137.8120880126953)
 }
-local function createAllPlatforms()
-    for i, pos in ipairs(platformPositions) do
-              local platform = Instance.new("Part")
-              platform.Name = "DeltaCorePlatform"
-              platform.Parent = workspace
-              platform.Position = pos
-              platform.Size = Vector3.new(100, 1, 100)
-              platform.Color = Color3.fromRGB(170, 0, 255)
-              platform.Material = Enum.Material.SmoothPlastic
-              platform.Anchored = true
-    end
-end
-------------- Farmy -----------------
-local function GoToPosition(targetVector)
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    
-    if not humanoid or not rootPart then return end
-
-    -- Tworzenie ścieżki
-    local path = PathfindingService:CreatePath({
-        AgentRadius = 2,
-        AgentHeight = 5,
-        AgentCanJump = true
-    })
-
-    -- Obliczanie trasy z obecnego miejsca do sellPos2
-    local success, errorMessage = pcall(function()
-        path:ComputeAsync(rootPart.Position, targetVector)
-    end)
-
-    if success and path.Status == Enum.PathStatus.Success then
-        local waypoints = path:GetWaypoints()
-
-        for _, waypoint in ipairs(waypoints) do
-            -- Obsługa skakania
-            if waypoint.Action == Enum.PathWaypointAction.Jump then
-                humanoid.Jump = true
-            end
-
-            -- Ruch do punktu
-            humanoid:MoveTo(waypoint.Position)
-            
-            -- Czekanie na dojście do punktu
-            local arrived = humanoid.MoveToFinished:Wait(2)
-            if not arrived then
-                warn("Przerwanie: Postać utknęła w drodze do sellPos2")
-                break
-            end
-        end
-        print("Postać dotarła do punktu sprzedaży.")
-    else
-        warn("Nie udało się wyznaczyć trasy do sellPos2: " .. tostring(errorMessage))
-    end
-end
---- 1. PODSTAWOWE ZMIENNE I FLAGI ---
-local ATMFlag = { Search = false }
-local spawnPos = Vector3.new(-315.4537353515625, 17.595108032226562, -1660.684326171875)
-local positions = {
-    Vector3.new(-978.8837890625, -167, 313.3407897949219),
-    Vector3.new(-484.3203430175781, -167, -1226.457275390625),
-    Vector3.new(220.6251220703125, -167, 137.8120880126953)
-}
-local sellPos1 = Vector3.new(-2520.495849609375, 15.116586685180664, 4035.560791015625) 
+local sellPos1 = Vector3.new(-2520.495849609375, 15.116586685180664, 4035.560791015625)
 local sellPos2 = Vector3.new(-2542.12646484375, 15.116586685180664, 4030.9150390625)
 
--- Deklarujemy zmienną Labela wcześniej, aby funkcje mogły ją widzieć
+-- UI Labels
 local ProgressLabel
+local StatusLabel
+
+-- =============================================================================
+-- 3. FUNKCJE POMOCNICZE (SYSTEMOWE)
+-- =============================================================================
+
+local function setStatus(text)
+    if StatusLabel then StatusLabel:Set("Status: " .. text) end
+    print("LOG: " .. text)
+end
+
+local function setWeight(isHeavy)
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CustomPhysicalProperties = isHeavy and PhysicalProperties.new(100, 0.3, 0.5) or nil
+            end
+        end
+    end
+end
 
 local function SetNoclip(state)
+    if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
     if state then
-        if noclipConnection then noclipConnection:Disconnect() end
         noclipConnection = RunService.Stepped:Connect(function()
             if LocalPlayer.Character then
-                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
                     if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end
         end)
-    else
-        if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
-        if LocalPlayer.Character then
-            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanCollide = true end
-            end
-        end
     end
 end
 
---- 2. FUNKCJE ANALIZUJĄCE (MUSZĄ BYĆ NAD UI) ---
-
-local function GetCurrentCrimes()
-    local char = workspace:FindFirstChild(game.Players.LocalPlayer.Name)
-    if char then
-        local attr = char:GetAttribute("CrimesCommitted")
-        return attr or 0
-    end
-    return 0
-end
-
-local function UpdateProgressUI()
-    -- Sprawdzamy czy ProgressLabel w ogóle już istnieje
-    if not ProgressLabel then return end
-    
-    local current = GetCurrentCrimes()
-    -- Bezpieczne pobieranie wartości suwaka
-    local limit = 0
-    if Rayfield.Flags.BagSlider then
-        limit = Rayfield.Flags.BagSlider.CurrentValue
-    end
-    
-    if current == 0 then
-        ProgressLabel:Set("Postęp worków: 0 / " .. tostring(limit) .. " (Brak worków)")
-    else
-        ProgressLabel:Set("Postęp worków: " .. tostring(current) .. " / " .. tostring(limit))
+local function createAllPlatforms()
+    for _, pos in ipairs(platformPositions) do
+        local platform = Instance.new("Part")
+        platform.Name = "DeltaCorePlatform"
+        platform.Parent = workspace
+        platform.Position = pos
+        platform.Size = Vector3.new(100, 1, 100)
+        platform.Color = Color3.fromRGB(170, 0, 255)
+        platform.Anchored = true
     end
 end
 
---- 3. TWORZENIE INTERFEJSU (UI) ---
+local function removeAllPlatforms()
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == "DeltaCorePlatform" then obj:Destroy() end
+    end
+end
 
-TabFarm:CreateToggle({
-   Name = "Criminal ATM Farm",
-   CurrentValue = false,
-   Flag = "ATMFarmToggle",
-   Callback = function(Value)
-      if Value then StartATMFarm() else StopATMFarm() end
-   end,
-})
-
-TabFarm:CreateSlider({
-   Name = "Limit Worków",
-   Range = {6, 200},
-   Increment = 1,
-   Suffix = "Bags",
-   CurrentValue = 25,
-   Flag = "BagSlider",
-   Callback = function(Value)
-      UpdateProgressUI()
-   end,
-})
-
--- Teraz przypisujemy Label do zmiennej
-ProgressLabel = TabFarm:CreateLabel("Postęp worków: Oczekiwanie na akcję...")
-
---- 4. RESZTA FUNKCJI LOGICZNYCH ---
+local function tpTo(pos)
+    if not ATMFlag.Search and pos ~= spawnPos then return end
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char:PivotTo(CFrame.new(pos + Vector3.new(0, 3, 0)))
+    end
+end
 
 local function IsPoliceNearby(radius)
-    local player = game.Players.LocalPlayer
-    local char = player.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return false end
-
-    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
-        if otherPlayer ~= player and otherPlayer:GetAttribute("JobId") == "Security" then
-            local otherChar = otherPlayer.Character
-            local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
-            if otherRoot then
-                local distance = (root.Position - otherRoot.Position).Magnitude
-                if distance <= radius then
-                    return true, otherPlayer.Name, distance
-                end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p:GetAttribute("JobId") == "Security" then
+            local otherRoot = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            if otherRoot and (root.Position - otherRoot.Position).Magnitude <= radius then
+                return true
             end
         end
     end
     return false
 end
 
-local function tpTo(pos)
-    if not ATMFlag.Search and pos ~= spawnPos then return end -- Nie teleportuj nigdzie indziej niż spawn jeśli STOP
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
-    end
-end
-local function ExecuteSellingProcess()
-    print("CN wykryte, rozpoczynam sprzedaż...")
-    tpTo(sellPos1)
-    task.wait(0.7)
-    tpTo(sellPos1)
-    task.wait(0.5)
-    GoToPosition(sellPos2)
-    UpdateProgressUI()
-    print("Powrót do farmy bankomatów.")
-end
-
-local function BustATM(atmModel)
-    if not atmModel then return end
-    local bustRemoteStart = game.ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AttemptATMBustStart")
-    local bustRemoteEnd = game.ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AttemptATMBustComplete")
-
-    bustRemoteStart:InvokeServer(atmModel)
-    task.wait(5.5)
-    bustRemoteEnd:InvokeServer(atmModel)
-    task.wait(0.2)
-end
+-- =============================================================================
+-- 4. LOGIKA FARMOWANIA
+-- =============================================================================
 
 local function GetAvailableATM()
-    local spawnersFolder = workspace.Game.Jobs.CriminalATMSpawners
-    for _, spawner in ipairs(spawnersFolder:GetChildren()) do
-        local atmModel = spawner:FindFirstChild("CriminalATM")
-        if atmModel and atmModel:GetAttribute("State") == "Normal" then
-            return spawner
+    local spawners = workspace.Game.Jobs.CriminalATMSpawners
+    for _, spawner in ipairs(spawners:GetChildren()) do
+        local atm = spawner:FindFirstChild("CriminalATM")
+        if atm and atm:GetAttribute("State") == "Normal" then
+            return spawner, atm
         end
     end
-    return nil
+    return nil, nil
 end
 
---- 5. GŁÓWNA PĘTLA I START/STOP ---
+local function SafeBust(targetSpawner, atmModel)
+    setStatus("Rabowanie SAFE (Start pod ATM)")
+    
+    -- KROK 1: Podlatujemy pod bankomat, żeby zacząć
+    tpTo(targetSpawner.Position)
+    task.wait(0.3) -- Czas na zsynchronizowanie pozycji z serwerem
+    
+    -- KROK 2: Wywołujemy start rabunku
+    bustStart:InvokeServer(atmModel)
+    
+    -- KROK 3: NATYCHMIAST uciekamy na bezpieczną platformę (Duch)
+    local safePos = platformPositions[math.random(1, #platformPositions)]
+    tpTo(safePos)
+    setStatus("Interakcja trwa... Czekam bezpiecznie (5.5s)")
+    
+    task.wait(5.5)
+    
+    -- KROK 4: Powrót pod bankomat TYLKO na ułamek sekundy, by go zebrać
+    if ATMFlag.Search then
+        tpTo(targetSpawner.Position)
+        task.wait(0.25) -- Kluczowe dla Anty-Cheata
+        bustEnd:InvokeServer(atmModel)
+        
+        -- KROK 5: Błyskawiczny odwrót po zebraniu kasy
+        tpTo(safePos)
+        setStatus("Bankomat zebrany (Safe Mode)!")
+    end
+end
+
+local function StandardBust(targetSpawner, atmModel)
+    setStatus("Rabowanie Standardowe (Stoję przy ATM)")
+    
+    -- KROK 1: Teleport pod bankomat
+    tpTo(targetSpawner.Position)
+    task.wait(0.3)
+    
+    -- KROK 2: Start
+    bustStart:InvokeServer(atmModel)
+    
+    -- KROK 3: Czekamy pod samym bankomatem (bo jest czysto, brak policji)
+    task.wait(5.5)
+    
+    -- KROK 4: Koniec i zebranie łupu
+    if ATMFlag.Search then
+        bustEnd:InvokeServer(atmModel)
+        setStatus("Bankomat zebrany!")
+        
+        -- Po wszystkim uciekamy na bezpieczną platformę
+        task.wait(0.1)
+        tpTo(platformPositions[math.random(1, #platformPositions)])
+    end
+end
+
+-- =============================================================================
+-- 5. GŁÓWNA PĘTLA (START_LOOP)
+-- =============================================================================
 
 local function StartLoop()
     task.spawn(function()
         while ATMFlag.Search do
-            UpdateProgressUI()
-
-            -- 1. Sprawdzenie Policji
-            local policeFound = IsPoliceNearby(200)
-            if policeFound then
-                setWeight(false)
-                tpTo(positions[math.random(1, #positions)])
-                task.wait(3)
-                continue 
-            end
-
-            -- 2. Sprawdzenie limitu worków
-            local currentLimit = Rayfield.Flags.BagSlider.CurrentValue
-            if GetCurrentCrimes() >= currentLimit then
-                -- Zamiast zwykłego wywołania, robimy pełną obsługę
-                ExecuteSellingProcess()
-                task.wait(1)
-                
+            -- KROK 4 & 5: Teleportacja po platformach i czekanie na wczytanie
+            for _, platformPos in ipairs(platformPositions) do
                 if not ATMFlag.Search then break end
-                continue
-            end
+                
+                -- Weryfikacja Noclip/Weight przed każdym skokiem
+                SetNoclip(true)
+                setWeight(true)
+                
+                setStatus("Skok na platformę - Czekam 5s na wczytanie ATM")
+                tpTo(platformPos)
+                task.wait(5) -- Czas na wczytanie się ATM w okolicy platformy
 
-            -- 3. Szukanie ATM
-            local targetSpawner = GetAvailableATM()
-            if targetSpawner then
-                local atmModel = targetSpawner:FindFirstChild("CriminalATM")
-                if atmModel then
-                    setWeight(true)
-                    tpTo(targetSpawner.Position)
-                    task.wait(0.5)
-                    
-                    if ATMFlag.Search and not IsPoliceNearby(150) then
-                        BustATM(atmModel)
-                        UpdateProgressUI()
+                -- KROK 6: Sprawdzenie czy jest ATM
+                local spawner, atm = GetAvailableATM()
+                if spawner and atm then
+                    -- KROK 7: Decyzja o trybie rabowania
+                    if IsPoliceNearby(150) then
+                        SafeBust(spawner, atm)
+                    else
+                        StandardBust(spawner, atm)
                     end
                     
-                    -- Bezpieczne oczekiwanie po skoku na ATM
-                    if ATMFlag.Search then
-                        tpTo(positions[math.random(1, #positions)])
-                        task.wait(5)
-                    end
+                    setStatus("Cooldown po rabunku (5s)...")
+                    tpTo(platformPos) -- Powrót na bezpieczną platformę
+                    task.wait(5)
                 end
-            else
-                -- Patrolowanie pozycji
-                for _, targetPos in ipairs(positions) do
-                    if not ATMFlag.Search or GetAvailableATM() then break end
-                    tpTo(targetPos)
-                    task.wait(4)
+
+                -- Sprawdzenie limitu worków
+                local limit = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 25
+                if (LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0) >= limit then
+                    setStatus("Limit osiągnięty - Sprzedaż...")
+                    tpTo(sellPos1)
+                    task.wait(1)
+                    tpTo(sellPos2)
+                    task.wait(2)
                 end
             end
-            task.wait(0.5)
+            task.wait(0.1)
         end
     end)
 end
 
+-- =============================================================================
+-- 6. START / STOP (ZARZĄDZANIE KROKAMI)
+-- =============================================================================
+
 function StartATMFarm()
     if ATMFlag.Search then return end
     ATMFlag.Search = true
+
+    -- KROK 1: Drużyna
+    setStatus("Krok 1: Weryfikacja drużyny")
+    pcall(function() RemoteStart:FireServer("Criminal", "jobPad") end)
+    task.wait(0.5)
+
+    -- KROK 2: Platformy
+    setStatus("Krok 2: Tworzenie platform")
+    removeAllPlatforms()
     createAllPlatforms()
-    
+    task.wait(0.5)
+
+    -- KROK 3: Fizyka i Noclip
+    setStatus("Krok 3: Włączanie Noclip i Weight")
     SetNoclip(true)
     setWeight(true)
-    task.wait(0.5)
-    -- Wywołanie Remote pracy
-    pcall(function()
-        RemoteStart:FireServer("Criminal", "jobPad") 
-    end)
-    
     task.wait(1)
+
+    -- Rozpoczęcie pętli
     StartLoop()
 end
 
 function StopATMFarm()
-    ATMFlag.Search = false -- To natychmiast blokuje funkcje tpTo i GoToPosition
+    ATMFlag.Search = false
+    setStatus("Zatrzymywanie...")
     
-    print("Zatrzymywanie farmy, powrót na spawn...")
-
-    
-    -- Najpierw teleport, potem czyszczenie
-    task.wait(0.1) 
     tpTo(spawnPos)
-    
-    -- Krótka pauza, by postać "osiadła" na spawnie przed wyłączeniem noclipa
     task.wait(0.5)
     
-    -- Wyjście z pracy
-    pcall(function()
-        RemoteEnd:FireServer("jobPad")
-    end)
-    
+    pcall(function() RemoteEnd:FireServer("jobPad") end)
     SetNoclip(false)
     setWeight(false)
-    
-    if typeof(removeAllPlatforms) == "function" then
-        removeAllPlatforms()
-    end
     removeAllPlatforms()
-    print("Farma wyłączona pomyślnie.")
+    setStatus("Farma wyłączona")
 end
+
+-- =============================================================================
+-- 7. INTERFEJS UŻYTKOWNIKA (RAYFIELD)
+-- =============================================================================
+
+TabFarm:CreateToggle({
+    Name = "Uruchom ATM Farm",
+    CurrentValue = false,
+    Flag = "ATMFarmToggle",
+    Callback = function(Value)
+        if Value then StartATMFarm() else StopATMFarm() end
+    end,
+})
+
+TabFarm:CreateSlider({
+    Name = "Limit Worków",
+    Range = {6, 200},
+    Increment = 1,
+    Suffix = "Bags",
+    CurrentValue = 25,
+    Flag = "BagSlider",
+    Callback = function(Value) end,
+})
+
+StatusLabel = TabFarm:CreateLabel("Status: Oczekiwanie...")
+ProgressLabel = TabFarm:CreateLabel("Postęp worków: 0 / 0")
+
+-- Pętla UI (Progress)
+task.spawn(function()
+    while true do
+        if ProgressLabel and LocalPlayer.Character then
+            local cur = LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+            local lim = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 0
+            ProgressLabel:Set("Postęp worków: " .. cur .. " / " .. lim)
+        end
+        task.wait(1)
+    end
+end)
