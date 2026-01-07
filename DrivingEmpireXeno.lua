@@ -16,6 +16,33 @@ local RemoteEnd = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Reques
 
 local antiAfkConnection
 
+local function ExecuteServerHop()
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local PlaceID = game.PlaceId
+
+    -- Kolejkowanie ponownego uruchomienia skryptu
+    local qot = syn and syn.queue_on_teleport or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
+    if qot then
+        qot([[
+            repeat task.wait() until game:IsLoaded()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/xxCichyxx/rbxscripts/refs/heads/main/DrivingEmpireXeno.lua"))()
+        ]])
+    end
+
+    -- Logika szukania serwera
+    local success, result = pcall(function()
+        local Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Desc&limit=100'))
+        for _, server in pairs(Site.data) do
+            if server.id ~= game.JobId and tonumber(server.playing) < tonumber(server.maxPlayers) then
+                TeleportService:TeleportToPlaceInstance(PlaceID, server.id, game.Players.LocalPlayer)
+                return true
+            end
+        end
+    end)
+    return success
+end
+
 -- Ustawienia domyślne (Zmienne globalne)
 _G.SpeedEnabled = false
 _G.SpeedMode = "Legit"
@@ -89,6 +116,13 @@ TabPlayer:CreateToggle({
          end
          Rayfield:Notify({Title = "Player Settings", Content = "Anti-AFK został wyłączony.", Duration = 3})
       end
+   end,
+})
+TabPlayer:CreateButton({
+   Name = "🚀 Server Hop",
+   Callback = function()
+      Rayfield:Notify({Title = "Server Hop", Content = "Szukanie serwera...", Duration = 3})
+      ExecuteServerHop()
    end,
 })
 local TeleportSection = TabPlayer:CreateSection("Player Teleport")
@@ -1419,3 +1453,5 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+
+Rayfield:LoadConfiguration()
