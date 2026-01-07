@@ -1,3 +1,7 @@
+if _G.XenoLoaded then 
+    return 
+end
+_G.XenoLoaded = true
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -20,8 +24,8 @@ local function ExecuteServerHop()
     local HttpService = game:GetService("HttpService")
     local TeleportService = game:GetService("TeleportService")
     local PlaceID = game.PlaceId
-
-    -- Kolejkowanie ponownego uruchomienia skryptu Xeno po wejściu na serwer
+    
+    -- KOLEJKOWANIE (Tylko tu, tuż przed teleportem)
     local qot = syn and syn.queue_on_teleport or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
     if qot then
         qot([[
@@ -29,13 +33,12 @@ local function ExecuteServerHop()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/xxCichyxx/rbxscripts/refs/heads/main/DrivingEmpireXeno.lua"))()
         ]])
     end
+
     local success = false
     local attempts = 0
     
     while not success and attempts < 10 do
         attempts = attempts + 1
-        
-        -- Pobieramy serwery (Desc zazwyczaj daje najnowsze/pustsze serwery na górze lub na końcu)
         local url = 'https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Desc&limit=100'
         
         local pcall_success, response = pcall(function()
@@ -43,7 +46,6 @@ local function ExecuteServerHop()
         end)
 
         if pcall_success and response and response.data then
-            -- Tworzymy tabelę potencjalnych wolnych serwerów
             local candidates = {}
             for _, server in pairs(response.data) do
                 if server.id ~= game.JobId and tonumber(server.playing) < tonumber(server.maxPlayers) then
@@ -51,22 +53,19 @@ local function ExecuteServerHop()
                 end
             end
 
-            -- Sortujemy kandydatów według ilości graczy (rosnąco - od najmniejszej)
-            table.sort(candidates, function(a, b)
-                return a.playing < b.playing
-            end)
+            table.sort(candidates, function(a, b) return a.playing < b.playing end)
 
-            -- Wybieramy jeden z 3 najpustszych serwerów (dla efektu "randomowego" pustego serwera)
             if #candidates > 0 then
-                local target = candidates[math.random(1, math.min(3, #candidates))]
+                local range = math.min(5, #candidates)
+                local target = candidates[math.random(1, range)]
+                
                 pcall(function()
                     TeleportService:TeleportToPlaceInstance(PlaceID, target.id, game.Players.LocalPlayer)
                     success = true
                 end)
             end
         end
-        
-        if not success then task.wait(1) end
+        if not success then task.wait(1.5) end
     end
 end
 
@@ -1482,4 +1481,5 @@ task.spawn(function()
 end)
 
 Rayfield:LoadConfiguration()
+
 
