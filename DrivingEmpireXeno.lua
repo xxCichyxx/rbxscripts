@@ -1195,6 +1195,32 @@ local function tpTo(pos)
     end
 end
 
+local function SimpleGoTo(destination, timeout)
+    local char = LocalPlayer.Character
+    local human = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root or not human then return end
+
+    local startT = tick()
+    timeout = timeout or 2 -- Max 10 sekund na dojście
+
+    -- Wyłączamy noclip na chwilę chodzenia, żeby postać nie zapadła się pod podłogę
+    -- (Opcjonalnie, jeśli gra tego wymaga)
+    
+    while (root.Position - destination).Magnitude > 3 do
+        if not ATMFlag.Search or (tick() - startT) > timeout then break end
+        
+        human:MoveTo(destination)
+        
+        -- Jeśli utknie (prędkość bliska 0), niech podskoczy
+        if root.AssemblyLinearVelocity.Magnitude < 0.5 then
+            human.Jump = true
+        end
+        
+        task.wait(0.1)
+    end
+end
+
 local function IsPoliceNearby(radius)
     local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return false end
@@ -1224,56 +1250,41 @@ local function GetAvailableATM()
     return nil, nil
 end
 
-local function SafeBust(targetSpawner, atmModel)
-    setStatus("Rabowanie SAFE (Start pod ATM)")
-    
-    -- KROK 1: Podlatujemy pod bankomat, żeby zacząć
-    tpTo(targetSpawner.Position)
-    task.wait(0.3) -- Czas na zsynchronizowanie pozycji z serwerem
-    
-    -- KROK 2: Wywołujemy start rabunku
-    bustStart:InvokeServer(atmModel)
-    
-    -- KROK 3: NATYCHMIAST uciekamy na bezpieczną platformę (Duch)
-    local safePos = platformPositions[math.random(1, #platformPositions)]
-    tpTo(safePos)
-    setStatus("Interakcja trwa... Czekam bezpiecznie (5.5s)")
-    
-    task.wait(5.5)
-    
-    -- KROK 4: Powrót pod bankomat TYLKO na ułamek sekundy, by go zebrać
-    if ATMFlag.Search then
-        tpTo(targetSpawner.Position)
-        task.wait(0.25) -- Kluczowe dla Anty-Cheata
-        bustEnd:InvokeServer(atmModel)
-        
-        -- KROK 5: Błyskawiczny odwrót po zebraniu kasy
-        tpTo(safePos)
-        setStatus("Bankomat zebrany (Safe Mode)!")
-    end
-end
-
-local function StandardBust(targetSpawner, atmModel)
-    setStatus("Rabowanie Standardowe (Stoję przy ATM)")
-    
-    -- KROK 1: Teleport pod bankomat
+local function SmartBust(targetSpawner, atmModel)
+    setStatus("Inicjacja rabunku...")
     tpTo(targetSpawner.Position)
     task.wait(0.3)
-    
-    -- KROK 2: Start
     bustStart:InvokeServer(atmModel)
-    
-    -- KROK 3: Czekamy pod samym bankomatem (bo jest czysto, brak policji)
-    task.wait(5.5)
-    
-    -- KROK 4: Koniec i zebranie łupu
-    if ATMFlag.Search then
-        bustEnd:InvokeServer(atmModel)
-        setStatus("Bankomat zebrany!")
+
+    local startTime = tick()
+    local escaped = false
+    local safePos = platformPositions[math.random(1, #platformPositions)]
+
+    -- Pętla monitorująca przez 5.5 sekundy
+    while tick() - startTime < 5.5 do
+        if not ATMFlag.Search then return end
         
-        -- Po wszystkim uciekamy na bezpieczną platformę
+        -- DYNAMICZNA DECYZJA: Jeśli policja blisko, a jeszcze nie uciekliśmy
+        if IsPoliceNearby(250) and not escaped then
+            setStatus("POLICJA WYKRYTA! Ucieczka na bezpieczną pozycję...")
+            tpTo(safePos)
+            escaped = true
+        end
+        task.wait(0.1) -- Częste sprawdzanie otoczenia
+    end
+
+    -- KROK KOŃCOWY: Odebranie łupu
+    if escaped then
+        setStatus("Powrót na ułamek sekundy po łup...")
+        tpTo(targetSpawner.Position)
+        task.wait(0.25) -- Czas dla serwera
+        bustEnd:InvokeServer(atmModel)
+        tpTo(safePos)
+    else
+        bustEnd:InvokeServer(atmModel)
+        setStatus("Bankomat zebrany (Czysto)!")
         task.wait(0.1)
-        tpTo(platformPositions[math.random(1, #platformPositions)])
+        tpTo(safePos)
     end
 end
 
@@ -1284,41 +1295,43 @@ end
 local function StartLoop()
     task.spawn(function()
         while ATMFlag.Search do
-            -- KROK 4 & 5: Teleportacja po platformach i czekanie na wczytanie
+            -- KROK 1: Najpierw sprawdź worki
+            local currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+            local limit = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 25
+            
+            if currentCrimes >= limit then
+                setStatus("Limit osiągnięty - Rozpoczynam procedurę sprzedaży...")
+                repeat
+                    tpTo(sellPos1) -- Teleport w okolice sklepu
+                    task.wait(0.5)
+                    setStatus("Idę do punktu sprzedaży...")
+                    SimpleGoTo(sellPos2, 2)
+                    task.wait(2)
+                    
+                    currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+                    if currentCrimes >= limit then
+                        setStatus("Błąd sprzedaży (Full Bags) - Ponawiam...")
+                    end
+                until currentCrimes < limit or not ATMFlag.Search
+                setStatus("Sprzedano! Wracam do farmy.")
+            end
+
+            -- KROK 2: Szukanie bankomatów
             for _, platformPos in ipairs(platformPositions) do
                 if not ATMFlag.Search then break end
                 
-                -- Weryfikacja Noclip/Weight przed każdym skokiem
                 SetNoclip(true)
                 setWeight(true)
                 
-                setStatus("Skok na platformę - Czekam 5s na wczytanie ATM")
+                setStatus("Skok na platformę - skanowanie okolicy")
                 tpTo(platformPos)
-                task.wait(5) -- Czas na wczytanie się ATM w okolicy platformy
+                task.wait(5) 
 
-                -- KROK 6: Sprawdzenie czy jest ATM
                 local spawner, atm = GetAvailableATM()
                 if spawner and atm then
-                    -- KROK 7: Decyzja o trybie rabowania
-                    if IsPoliceNearby(150) then
-                        SafeBust(spawner, atm)
-                    else
-                        StandardBust(spawner, atm)
-                    end
-                    
+                    SmartBust(spawner, atm) -- Używamy nowej inteligentnej funkcji
                     setStatus("Cooldown po rabunku (5s)...")
-                    tpTo(platformPos) -- Powrót na bezpieczną platformę
                     task.wait(5)
-                end
-
-                -- Sprawdzenie limitu worków
-                local limit = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 25
-                if (LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0) >= limit then
-                    setStatus("Limit osiągnięty - Sprzedaż...")
-                    tpTo(sellPos1)
-                    task.wait(1)
-                    tpTo(sellPos2)
-                    task.wait(2)
                 end
             end
             task.wait(0.1)
