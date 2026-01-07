@@ -1321,7 +1321,7 @@ local function SmartBust(targetSpawner, atmModel)
     local safePos = platformPositions[math.random(1, #platformPositions)]
 
     -- Pętla monitorująca przez 5.5 sekundy
-    while tick() - startTime < 5.5 do
+    while tick() - startTime < 5 do
         if not ATMFlag.Search then return end
         
         -- DYNAMICZNA DECYZJA: Jeśli policja blisko, a jeszcze nie uciekliśmy
@@ -1481,5 +1481,6 @@ task.spawn(function()
 end)
 
 Rayfield:LoadConfiguration()
+
 
 
