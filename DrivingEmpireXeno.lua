@@ -184,22 +184,32 @@ local function InstallEarlyHook()
             local method = getnamecallmethod()
             local args = {...}
             
-            -- Jeśli bypass jest aktywny, sprawdzamy każdy pakiet FireServer
             if BypassActive and (method == "FireServer" or method == "InvokeServer") then
                 local remoteName = tostring(self)
                 
-                -- Sprawdzanie po nazwie lub wzorcu HEX (dla dynamicznych ID)
-                if TargetRemotes[remoteName] or string.match(remoteName, "^%x%x%x%x") then
+                -- [LOGIKA BLOKOWANIA]
+                local shouldBlock = false
+                
+                -- A. Sprawdzanie czarnej listy nazw
+                if TargetRemotes[remoteName] then
+                    shouldBlock = true
+                end
+                
+                -- B. Sprawdzanie dynamicznych ID (Naprawiony wzorzec: 8 znaków hex + myślnik)
+                -- Zapobiega to blokowaniu "Attempt" i "Capture"
+                if not shouldBlock and string.match(remoteName, "^%x%x%x%x%x%x%x%x%-") then
+                    shouldBlock = true
+                end
+                
+                -- C. Blokada specyficzna: Location -> Boats
+                if not shouldBlock and remoteName == "Location" and args[1] == "Enter" and args[2] == "Boats" then
+                    shouldBlock = true
+                end
+
+                -- [WYKONANIE BLOKADY]
+                if shouldBlock then
                     BlockCount = BlockCount + 1
-                    
-                    -- Specjalna logika dla eventu ładującego: udajemy, że wszystko OK, ale nie wysyłamy
-                    if remoteName == "loadTime" then
-                         -- Możemy tu zmodyfikować argumenty, jeśli gra wymaga odpowiedzi, 
-                         -- ale zazwyczaj wystarczy 'return nil' aby ubić pakiet.
-                         return nil 
-                    end
-                    
-                    return nil -- Blokada wysyłania do serwera
+                    return nil 
                 end
             end
             
@@ -215,11 +225,6 @@ local function InstallEarlyHook()
     end
 end
 
--- =============================================================================
--- 2. AUTOMATYCZNE URUCHOMIENIE PRZY SERVER HOP
--- =============================================================================
--- Hook musi być zainstalowany ZANIM Toggle zostanie kliknięty, 
--- ale działać będzie tylko gdy BypassActive == true.
 InstallEarlyHook()
 
 -- =============================================================================
@@ -228,18 +233,16 @@ InstallEarlyHook()
 task.spawn(function()
     while true do
         if BypassActive then
-            -- Sprawdzamy, czy folder Remotes w ogóle istnieje (czy gra już "żyje")
             local remotesFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
             
             if remotesFolder then
-                local children = remotesFolder:GetChildren()
                 BypassLabel:Set("Status: 🔒 AKTYWNY ("..BlockCount.." zablokowanych)")
                 
-                -- Dynamiczna weryfikacja nowych eventów
+                local children = remotesFolder:GetChildren()
                 for _, remote in ipairs(children) do
                     local n = remote.Name
-                    if string.match(n, "^%x%x%x%x") and not TargetRemotes[n] then
-                        -- Automatycznie dodajemy nowo odkryte dynamiczne ID do listy blokowanych
+                    -- Automatyczne dodawanie nowych GUIDów do listy (z bezpiecznym wzorcem)
+                    if string.match(n, "^%x%x%x%x%x%x%x%x%-") and not TargetRemotes[n] then
                         TargetRemotes[n] = true
                     end
                 end
@@ -249,7 +252,7 @@ task.spawn(function()
         else
             BypassLabel:Set("Status: 💤 Wyłączony")
         end
-        task.wait(2) -- Szybsze odświeżanie (co 2 sekundy)
+        task.wait(2)
     end
 end)
 
@@ -263,14 +266,15 @@ TabPlayer:CreateToggle({
     Callback = function(Value)
         BypassActive = Value
         if Value then
-            -- Przy włączaniu zerujemy licznik, by widzieć nowe bloki
             BlockCount = 0
             Rayfield:Notify({
                 Title = "Bypass Aktywny",
-                Content = "Blokowanie pakietów startowych i telemetrii włączone.",
+                Content = "Blokowanie logów, rsp/rps i łodzi aktywne.",
                 Duration = 3,
                 Image = 4483362458,
             })
+        else
+            BypassLabel:Set("Status: 💤 Wyłączony")
         end
     end,
 })
