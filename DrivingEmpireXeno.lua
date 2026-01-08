@@ -151,98 +151,70 @@ TabPlayer:CreateButton({
       ExecuteServerHop()
    end,
 })
+-- Zmienne kontrolne (muszą być poza Toggle)
 local BypassActive = false
-local BypassLabel -- Zmienna dla etykiety statusu
+local HookInstalled = false
+local oldNamecall = nil
 
+-- Lista zablokowanych eventów
 local TargetRemotes = {
     ["StarwatchClientEventIngestor"] = true,
     ["rsp"] = true,
     ["rps"] = true,
-    ["rsi"] = true,
-    ["rs"] = true,
-    ["rsw"] = true,
     ["ptsstop"] = true,
-    ["SdkTelemetryRemote"] = true,  
-    ["TeleportInfo"] = true       
+    ["SdkTelemetryRemote"] = true,
+    ["TeleportInfo"] = true
 }
-
-local function InitiateBypass()
-    local requirements = {
-        ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
-        ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
-    }
-
-    local hasAll = true
-    for _, isAvailable in pairs(requirements) do
-        if not isAvailable then hasAll = false break end
-    end
-
-    if hasAll then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            local method = getnamecallmethod()
-            
-            -- Jeśli Bypass jest włączony i próbujemy wywołać zablokowany event
-            if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
-                return nil -- Blokada
-            end
-            
-            return oldNamecall(self, ...)
-        end)
-        return true
-    else
-        return false
-    end
-end
-
--- Próba inicjalizacji hooka przy starcie (ale blokada jest domyślnie wyłączona)
-local HookInstalled = InitiateBypass()
-
--- =============================================================================
--- ELEMENTY UI (W TABELI PLAYER)
--- =============================================================================
-
-BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie...")
-
+local BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie...")
 TabPlayer:CreateToggle({
     Name = "Bypass Monitor Events Exe LvL 8",
     CurrentValue = false,
     Flag = "BypassToggle",
     Callback = function(Value)
-        if not HookInstalled then
-            BypassLabel:Set("Bypass ❌ (Executor nieobsługiwany)")
-            return
-        end
-        BypassActive = Value
+        BypassActive = Value -- Kluczowe: ustawiamy stan aktywności
+
         if BypassActive then
-            BypassLabel:Set("Bypass ✅")
+            -- 1. SPRAWDZANIE WYMAGAŃ (Tylko przy pierwszej próbie)
+            local requirements = {
+                ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
+                ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
+            }
+
+            local missing = {}
+            local hasAll = true
+            for name, isAvailable in pairs(requirements) do
+                if not isAvailable then hasAll = false table.insert(missing, name) end
+            end
+
+            if not hasAll then
+                BypassLabel:Set("❌ Brak funkcji: " .. table.concat(missing, ", "))
+                return
+            end
+            if not HookInstalled then
+                HookInstalled = true
+                BypassLabel:Set("✅ Inicjalizacja Hooka...")
+                
+                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                    local method = getnamecallmethod()
+                    
+                    -- Hook działa zawsze, ale blokuje TYLKO gdy BypassActive jest true
+                    if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
+                        return nil
+                    end
+                    
+                    return oldNamecall(self, ...)
+                end)
+                BypassLabel:Set("✅ Bypass AKTYWNY")
+            else
+                BypassLabel:Set("✅ Bypass PONOWNIE WŁĄCZONY")
+            end
+            
         else
+            -- WYŁĄCZANIE (nie usuwamy hooka, tylko zmieniamy flagę)
             BypassLabel:Set("Bypass ❌ (Wyłączony)")
         end
     end,
 })
-
--- =============================================================================
--- PĘTLA MONITORUJĄCA (ZABEZPIECZENIE)
--- =============================================================================
--- Ta pętla dba o to, by status był zawsze poprawny i loguje próby blokady
-task.spawn(function()
-    while true do
-        if BypassActive and HookInstalled then
-            -- Tutaj można dodać dodatkową logikę sprawdzającą, czy gra nie próbuje 
-            -- nadpisać metatablicy (rzadkie, ale spotykane w LVL 8)
-            local success, _ = pcall(function()
-                return game:GetService("HttpService"):GenerateGUID(false)
-            end)
-            
-            if not success then 
-                BypassLabel:Set("Bypass ❌ (Błąd Krytyczny)")
-                BypassActive = false
-            end
-        end
-        task.wait(2)
-    end
-end)
 local TeleportSection = TabPlayer:CreateSection("Player Teleport")
 
 -- Zmienna przechowująca wybranego gracza
