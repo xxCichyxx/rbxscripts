@@ -153,65 +153,62 @@ TabPlayer:CreateButton({
 })
 -- Zmienne kontrolne (muszą być poza Toggle)
 local BypassActive = false
-local HookInstalled = false
-local oldNamecall = nil
 
--- Lista zablokowanych eventów
-local TargetRemotes = {
-    ["StarwatchClientEventIngestor"] = true,
-    ["rsp"] = true,
-    ["rps"] = true,
-    ["ptsstop"] = true,
-    ["SdkTelemetryRemote"] = true,
-    ["TeleportInfo"] = true
-}
 local BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie...")
 TabPlayer:CreateToggle({
     Name = "Bypass Monitor Events Exe LvL 8",
     CurrentValue = false,
     Flag = "BypassToggle",
     Callback = function(Value)
-        BypassActive = Value -- Kluczowe: ustawiamy stan aktywności
-
+        BypassActive = Value
         if BypassActive then
-            -- 1. SPRAWDZANIE WYMAGAŃ (Tylko przy pierwszej próbie)
             local requirements = {
-                ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
-                ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
-            }
+    ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
+    ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
+}
 
-            local missing = {}
-            local hasAll = true
-            for name, isAvailable in pairs(requirements) do
-                if not isAvailable then hasAll = false table.insert(missing, name) end
-            end
+local missing = {}
+local hasAll = true
 
-            if not hasAll then
-                BypassLabel:Set("❌ Brak funkcji: " .. table.concat(missing, ", "))
-                return
-            end
-            if not HookInstalled then
-                HookInstalled = true
-                BypassLabel:Set("✅ Inicjalizacja Hooka...")
-                
-                oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                    local method = getnamecallmethod()
-                    
-                    -- Hook działa zawsze, ale blokuje TYLKO gdy BypassActive jest true
-                    if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
-                        return nil
-                    end
-                    
-                    return oldNamecall(self, ...)
-                end)
-                BypassLabel:Set("✅ Bypass AKTYWNY")
-            else
-                BypassLabel:Set("✅ Bypass PONOWNIE WŁĄCZONY")
-            end
-            
-        else
-            -- WYŁĄCZANIE (nie usuwamy hooka, tylko zmieniamy flagę)
-            BypassLabel:Set("Bypass ❌ (Wyłączony)")
+-- Weryfikacja dostępności każdej funkcji z osobna
+for name, isAvailable in pairs(requirements) do
+    if not isAvailable then
+        hasAll = false
+        table.insert(missing, name)
+    end
+end
+
+if hasAll then
+    BypassLabel:Set("✅ Wszystkie zależności wykryte. Uruchamiam Bypass...")
+    local TargetRemotes = {
+    ["StarwatchClientEventIngestor"] = true,
+    ["rsp"] = true,
+    ["rps"] = true,
+    ["rsi"] = true,
+    ["rs"] = true,
+    ["rsw"] = true,
+    ["ptsstop"] = true,
+    ["SdkTelemetryRemote"] = true,  
+    ["TeleportInfo"] = true       
+    }
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if method == "FireServer" and TargetRemotes[self.Name] then
+            return nil
+        end
+        return oldNamecall(self, ...)
+    end)
+    BypassLabel:Set("Bypass Status: ✅")
+else
+    -- Informacja o braku dostępu i zakończenie skryptu
+    warn("❌ KRYTYCZNY BŁĄD: Brak dostępu do wymaganych funkcji executora!")
+    for _, name in ipairs(missing) do
+        print("   🔴 Brakująca funkcja: " .. name)
+    end
+    BypassLabel:Set("Twój executor Nie Obsługuje Bypass. ❌")
+    return -- Całkowite wyjście ze skryptu
+end
         end
     end,
 })
@@ -1529,5 +1526,4 @@ task.spawn(function()
         task.wait(1)
     end
 end)
-
 Rayfield:LoadConfiguration()
