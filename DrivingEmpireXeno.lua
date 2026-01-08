@@ -156,64 +156,117 @@ local BypassActive = false
 local HookInstalled = false
 local TargetRemotes = {
     ["StarwatchClientEventIngestor"] = true,
-    ["rsp"] = true,
-    ["rps"] = true,
-    ["rsi"] = true,
-    ["rs"] = true,
-    ["rsw"] = true,
-    ["ptsstop"] = true,
-    ["SdkTelemetryRemote"] = true,  
-    ["TeleportInfo"] = true       
+    ["rsp"] = true, ["rps"] = true, ["rsi"] = true, ["rs"] = true, ["rsw"] = true,
+    ["ptsstop"] = true, ["ptsstart"] = true, ["SdkTelemetryRemote"] = true,
+    ["TeleportInfo"] = true, ["SendLogString"] = true, ["GetClientLogs"] = true,
+    ["GetClientFPS"] = true, ["GetClientPing"] = true, ["GetClientMemoryUsage"] = true,
+    ["GetClientPerformanceStats"] = true, ["GetClientReport"] = true,
+    ["RepBL"] = true, ["UnauthorizedTeleport"] = true, ["ClientDetectedSoftlock"] = true
 }
 
--- Label musi być stworzony przed Toglem
-local BypassLabel = TabPlayer:CreateLabel("Bypass Status: Oczekiwanie...")
+-- Label (musi być stworzony w Twoim TabPlayer)
+local BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie na eventy...")
 
 -- =============================================================================
--- 2. GŁÓWNA PĘTLA MONITORUJĄCA (CO 5 SEKUND)
+-- 1. FUNKCJA CZEKAJĄCA NA ZAŁADOWANIE EVENTÓW
+-- =============================================================================
+local function WaitForRemotes()
+    local remotesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 10)
+    if remotesFolder then
+        -- Czekamy aż folder będzie miał dzieci (ponad 100 zgodnie z Twoją listą)
+        repeat task.wait(0.5) until #remotesFolder:GetChildren() > 100
+        return true
+    end
+    return false
+end
+
+-- =============================================================================
+-- 2. INSTALACJA HOOKA (POZA PĘTLĄ, ABY UNIKNĄĆ CRASHU)
+-- =============================================================================
+local function InstallHook()
+    if HookInstalled then return end
+    
+    local success, err = pcall(function()
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            
+            -- Blokujemy jeśli Bypass jest ON i Remote jest na czarnej liście
+            if BypassActive and (method == "FireServer" or method == "InvokeServer") then
+                if TargetRemotes[self.Name] or string.match(self.Name, "^%x%x%x%x%x%x%x%x%-") then
+                    return nil -- Całkowite zablokowanie wysyłania
+                end
+            end
+            
+            return oldNamecall(self, ...)
+        end)
+    end)
+
+    if success then
+        HookInstalled = true
+        return true
+    else
+        warn("Błąd instalacji hooka: " .. tostring(err))
+        return false
+    end
+end
+
+-- =============================================================================
+-- 3. GŁÓWNA PĘTLA WERYFIKUJĄCA (CO 5 SEKUND)
 -- =============================================================================
 task.spawn(function()
+    -- KROK 1: Czekaj na załadowanie
+    BypassLabel:Set("Bypass: Wczytywanie Remotes...")
+    if WaitForRemotes() then
+        BypassLabel:Set("Bypass: Eventy załadowane. Gotowy.")
+    else
+        BypassLabel:Set("❌ Błąd: Nie znaleziono folderu Remotes")
+        return
+    end
+
+    -- KROK 2: Pętla monitorująca
     while true do
         if BypassActive then
-            -- Sprawdzanie wymagań executora
-            local requirements = {
-                ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
-                ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
-            }
-
-            local hasAll = true
-            for name, isAvailable in pairs(requirements) do
-                if not isAvailable then hasAll = false break end
-            end
-
-            if hasAll then
-                -- Instalacja hooka tylko jeśli jeszcze go nie ma
+            -- Sprawdzenie czy executor żyje
+            local hasFunctions = (typeof(hookmetamethod) == "function" and typeof(getnamecallmethod) == "function")
+            
+            if hasFunctions then
+                -- Próba instalacji jeśli jeszcze nie ma
                 if not HookInstalled then
-                    HookInstalled = true
-                    local oldNamecall
-                    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-                        local method = getnamecallmethod()
-                        if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
-                            return nil
-                        end
-                        return oldNamecall(self, ...)
-                    end)
-                    BypassLabel:Set("✅ Bypass zainstalowany i monitorowany")
+                    local ok = InstallHook()
+                    if ok then 
+                        BypassLabel:Set("✅ Bypass zainstalowany") 
+                    else 
+                        BypassLabel:Set("❌ Błąd hookowania") 
+                    end
+                end
+
+                -- WERYFIKACJA: Sprawdzamy czy podejrzane eventy nadal istnieją w grze
+                local remotesFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+                local missingSome = false
+                
+                -- Sprawdzamy tylko kilka kluczowych z TargetRemotes dla testu
+                if remotesFolder then
+                    if not remotesFolder:FindFirstChild("rsp") and not remotesFolder:FindFirstChild("rs") then
+                        missingSome = true
+                    end
+                end
+
+                if missingSome then
+                    BypassLabel:Set("Bypass Status: ⚠️ Eventy ukryte (OK)")
                 else
-                    -- Co 5 sekund aktualizujemy label, żeby wiedzieć, że pętla żyje
-                    BypassLabel:Set("Bypass Status: ✅")
+                    BypassLabel:Set("Bypass Status: Poprawny ✅")
                 end
             else
                 BypassLabel:Set("❌ Krytyczny błąd executora!")
-                warn("Brak funkcji hookmetamethod/getnamecallmethod")
             end
         end
-        task.wait(5) -- Oczekiwanie 5 sekund zgodnie z prośbą
+        task.wait(5)
     end
 end)
 
 -- =============================================================================
--- 3. TOGGLE W INTERFEJSIE
+-- 4. TOGGLE W INTERFEJSIE
 -- =============================================================================
 TabPlayer:CreateToggle({
     Name = "Bypass Monitor Events Exe LvL 8",
@@ -221,7 +274,10 @@ TabPlayer:CreateToggle({
     Flag = "BypassToggle",
     Callback = function(Value)
         BypassActive = Value
-        if not Value then
+        if Value then
+            -- Próba wymuszenia instalacji przy kliknięciu
+            InstallHook()
+        else
             BypassLabel:Set("Bypass Status: ❌ (Wyłączony)")
         end
     end,
