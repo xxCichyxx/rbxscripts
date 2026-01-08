@@ -274,24 +274,6 @@ TabPlayer:CreateToggle({
         end
     end,
 })
-
--- =============================================================================
--- 4. TOGGLE W INTERFEJSIE
--- =============================================================================
-TabPlayer:CreateToggle({
-    Name = "Bypass Monitor Events Exe LvL 8",
-    CurrentValue = false,
-    Flag = "BypassToggle",
-    Callback = function(Value)
-        BypassActive = Value
-        if Value then
-            -- Próba wymuszenia instalacji przy kliknięciu
-            InstallHook()
-        else
-            BypassLabel:Set("Bypass Status: ❌ (Wyłączony)")
-        end
-    end,
-})
 local TeleportSection = TabPlayer:CreateSection("Player Teleport")
 
 -- Zmienna przechowująca wybranego gracza
@@ -1762,3 +1744,4 @@ task.spawn(function()
     end
 end)
 Rayfield:LoadConfiguration()
+
