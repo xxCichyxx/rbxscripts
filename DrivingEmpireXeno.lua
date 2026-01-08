@@ -152,36 +152,9 @@ TabPlayer:CreateButton({
       ExecuteServerHop()
    end,
 })
--- Zmienne kontrolne (muszą być poza Toggle)
 local BypassActive = false
-
-local BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie...")
-TabPlayer:CreateToggle({
-    Name = "Bypass Monitor Events Exe LvL 8",
-    CurrentValue = false,
-    Flag = "BypassToggle",
-    Callback = function(Value)
-        BypassActive = Value
-        if BypassActive then
-            local requirements = {
-    ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
-    ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
-}
-
-local missing = {}
-local hasAll = true
-
--- Weryfikacja dostępności każdej funkcji z osobna
-for name, isAvailable in pairs(requirements) do
-    if not isAvailable then
-        hasAll = false
-        table.insert(missing, name)
-    end
-end
-
-if hasAll then
-    BypassLabel:Set("✅ Wszystkie zależności wykryte. Uruchamiam Bypass...")
-    local TargetRemotes = {
+local HookInstalled = false
+local TargetRemotes = {
     ["StarwatchClientEventIngestor"] = true,
     ["rsp"] = true,
     ["rps"] = true,
@@ -191,25 +164,65 @@ if hasAll then
     ["ptsstop"] = true,
     ["SdkTelemetryRemote"] = true,  
     ["TeleportInfo"] = true       
-    }
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        if method == "FireServer" and TargetRemotes[self.Name] then
-            return nil
+}
+
+-- Label musi być stworzony przed Toglem
+local BypassLabel = TabPlayer:CreateLabel("Bypass Status: Oczekiwanie...")
+
+-- =============================================================================
+-- 2. GŁÓWNA PĘTLA MONITORUJĄCA (CO 5 SEKUND)
+-- =============================================================================
+task.spawn(function()
+    while true do
+        if BypassActive then
+            -- Sprawdzanie wymagań executora
+            local requirements = {
+                ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
+                ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
+            }
+
+            local hasAll = true
+            for name, isAvailable in pairs(requirements) do
+                if not isAvailable then hasAll = false break end
+            end
+
+            if hasAll then
+                -- Instalacja hooka tylko jeśli jeszcze go nie ma
+                if not HookInstalled then
+                    HookInstalled = true
+                    local oldNamecall
+                    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                        local method = getnamecallmethod()
+                        if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
+                            return nil
+                        end
+                        return oldNamecall(self, ...)
+                    end)
+                    BypassLabel:Set("✅ Bypass zainstalowany i monitorowany")
+                else
+                    -- Co 5 sekund aktualizujemy label, żeby wiedzieć, że pętla żyje
+                    BypassLabel:Set("Bypass Status: ✅")
+                end
+            else
+                BypassLabel:Set("❌ Krytyczny błąd executora!")
+                warn("Brak funkcji hookmetamethod/getnamecallmethod")
+            end
         end
-        return oldNamecall(self, ...)
-    end)
-    BypassLabel:Set("Bypass Status: ✅")
-else
-    -- Informacja o braku dostępu i zakończenie skryptu
-    warn("❌ KRYTYCZNY BŁĄD: Brak dostępu do wymaganych funkcji executora!")
-    for _, name in ipairs(missing) do
-        print("   🔴 Brakująca funkcja: " .. name)
+        task.wait(5) -- Oczekiwanie 5 sekund zgodnie z prośbą
     end
-    BypassLabel:Set("Twój executor Nie Obsługuje Bypass. ❌")
-    return -- Całkowite wyjście ze skryptu
-end
+end)
+
+-- =============================================================================
+-- 3. TOGGLE W INTERFEJSIE
+-- =============================================================================
+TabPlayer:CreateToggle({
+    Name = "Bypass Monitor Events Exe LvL 8",
+    CurrentValue = false,
+    Flag = "BypassToggle",
+    Callback = function(Value)
+        BypassActive = Value
+        if not Value then
+            BypassLabel:Set("Bypass Status: ❌ (Wyłączony)")
         end
     end,
 })
@@ -1372,6 +1385,24 @@ local function GetAvailableATM()
     end
     return nil, nil
 end
+local Config = {
+    task1 = 0.5, -- teleport do sellpos1
+    task2 = 2.0, -- przetwarzanie sellpos2
+    task3 = 0.3, -- wczytanie ATM (start)
+    task4 = 5.0, -- cooldown rabowania
+    task5 = 0.3, -- wczytanie ATM (odbiór)
+    task6 = 0.2, -- finalizacja rabunku
+    task7 = 5.0, -- czas ładowania na platformach
+    task8 = 0.2, -- przerwa chwilowa
+}
+local function notifyUpdate(taskName, value)
+    Rayfield:Notify({
+        Title = "Konfiguracja Zaktualizowana",
+        Content = "Ustawiono " .. taskName .. " na: " .. value .. "s",
+        Duration = 2,
+        Image = 4483362458,
+    })
+end
 local function CheckBagLimit()
     if not ATMFlag.Search then return false end
     
@@ -1385,10 +1416,10 @@ local function CheckBagLimit()
         while currentCrimes >= limit and ATMFlag.Search do
             SetNoclip(true) -- Upewniamy się, że noclip działa przy sprzedaży
             tpTo(sellPos1)
-            task.wait(0.5)
+            task.wait(Config.task1)
             setStatus("Idę do punktu sprzedaży...")
             SimpleGoTo(sellPos2, 2)
-            task.wait(2) -- Czas na przetworzenie sprzedaży przez serwer
+            task.wait(Config.task2) -- Czas na przetworzenie sprzedaży przez serwer
             
             currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
         end
@@ -1408,23 +1439,23 @@ local function SmartBust(targetSpawner, atmModel)
     setStatus("Rozpoczynanie rabunku...")
     if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     tpTo(targetSpawner.Position)
-    task.wait(0.4)
+    task.wait(Config.task3)
     
     bustStart:InvokeServer(atmModel)
     
     -- KROK 2: Ucieczka na bezpieczną platformę
     setStatus("Czekanie w bezpiecznym miejscu...")
     tpTo(safePos)
-    task.wait(5.2) -- Lekko wydłużone dla bezpieczeństwa
+    task.wait(Config.task4) -- Lekko wydłużone dla bezpieczeństwa
     
     -- KROK 3: Odbiór
     setStatus("Odbiór łupu...")
     if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     tpTo(targetSpawner.Position)
-    task.wait(0.4)
+    task.wait(Config.task5)
     bustEnd:InvokeServer(atmModel)
     
-    task.wait(0.2)
+    task.wait(Config.task6)
     tpTo(safePos)
     
     -- KLUCZOWE: Sprawdź limit natychmiast po rabunku!
@@ -1457,13 +1488,13 @@ local function StartLoop()
                 
                 setStatus("Skanowanie platformy...")
                 tpTo(platformPos)
-                task.wait(5) -- Czas na załadowanie się ATM w streamingu
+                task.wait(Config.task7) -- Czas na załadowanie się ATM w streamingu
 
                 local spawner, atm = GetAvailableATM()
                 if spawner and atm then
                     SmartBust(spawner, atm)
                     setStatus("Przerwa techniczna (Cooldown)...")
-                    task.wait(2)
+                    task.wait(Config.task8)
                 end
             end
             task.wait(0.1)
@@ -1537,9 +1568,116 @@ TabFarm:CreateSlider({
     Flag = "BagSlider",
     Callback = function(Value) end,
 })
-
 StatusLabel = TabFarm:CreateLabel("Status: Oczekiwanie...")
 ProgressLabel = TabFarm:CreateLabel("Postęp worków: 0 / 0")
+TabFarm:CreateLabel("⚙️ KONFIGURACJA PRĘDKOŚCI Farmy (DELAYS)")
+TabFarm:CreateInput({
+    Name = "Task 1: Teleport SellPos1",
+    PlaceholderText = "Obecnie: " .. Config.task1,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task1 = val notifyUpdate("Task 1", val) end
+    end,
+})
+
+-- Task 2
+TabFarm:CreateInput({
+    Name = "Task 2: Przetwarzanie Sprzedaży",
+    PlaceholderText = "Obecnie: " .. Config.task2,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task2 = val notifyUpdate("Task 2", val) end
+    end,
+})
+
+-- TabFarm 3
+TabFarm:CreateInput({
+    Name = "Task 3: Wczytanie ATM (Start)",
+    PlaceholderText = "Obecnie: " .. Config.task3,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task3 = val notifyUpdate("Task 3", val) end
+    end,
+})
+
+-- Task 4
+TabFarm:CreateInput({
+    Name = "Task 4: Cooldown Rabunku",
+    PlaceholderText = "Obecnie: " .. Config.task4,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task4 = val notifyUpdate("Task 4", val) end
+    end,
+})
+
+-- Task 5
+TabFarm:CreateInput({
+    Name = "Task 5: Wczytanie ATM (Odbiór)",
+    PlaceholderText = "Obecnie: " .. Config.task5,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task5 = val notifyUpdate("Task 5", val) end
+    end,
+})
+
+-- Task 6
+TabFarm:CreateInput({
+    Name = "Task 6: Finalizacja Rabunku",
+    PlaceholderText = "Obecnie: " .. Config.task6,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task6 = val notifyUpdate("Task 6", val) end
+    end,
+})
+
+-- Task 7
+TabFarm:CreateInput({
+    Name = "Task 7: Ładowanie Platform",
+    PlaceholderText = "Obecnie: " .. Config.task7,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task7 = val notifyUpdate("Task 7", val) end
+    end,
+})
+
+-- Task 8
+TabFarm:CreateInput({
+    Name = "Task 8: Przerwa Chwilowa",
+    PlaceholderText = "Obecnie: " .. Config.task8,
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local val = tonumber(Text)
+        if val then Config.task8 = val notifyUpdate("Task 8", val) end
+    end,
+})
+
+--- Przycisk Resetu ---
+TabFarm:CreateButton({
+    Name = "♻️ RESETUJ WSZYSTKIE OPÓŹNIENIA",
+    Callback = function()
+        Config.task1 = 0.5
+        Config.task2 = 2.0
+        Config.task3 = 0.3
+        Config.task4 = 5.0
+        Config.task5 = 0.3
+        Config.task6 = 0.2
+        Config.task7 = 5.0
+        Config.task8 = 0.2
+        Rayfield:Notify({
+            Title = "Reset Konfiguracji",
+            Content = "Przywrócono wartości domyślne.",
+            Duration = 3,
+            Image = 4483362458,
+        })
+    end,
+})
 
 -- Pętla UI (Progress)
 task.spawn(function()
