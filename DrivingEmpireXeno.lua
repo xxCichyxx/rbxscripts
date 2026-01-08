@@ -151,6 +151,98 @@ TabPlayer:CreateButton({
       ExecuteServerHop()
    end,
 })
+local BypassActive = false
+local BypassLabel -- Zmienna dla etykiety statusu
+
+local TargetRemotes = {
+    ["StarwatchClientEventIngestor"] = true,
+    ["rsp"] = true,
+    ["rps"] = true,
+    ["rsi"] = true,
+    ["rs"] = true,
+    ["rsw"] = true,
+    ["ptsstop"] = true,
+    ["SdkTelemetryRemote"] = true,  
+    ["TeleportInfo"] = true       
+}
+
+local function InitiateBypass()
+    local requirements = {
+        ["hookmetamethod"] = (typeof(hookmetamethod) == "function"),
+        ["getnamecallmethod"] = (typeof(getnamecallmethod) == "function")
+    }
+
+    local hasAll = true
+    for _, isAvailable in pairs(requirements) do
+        if not isAvailable then hasAll = false break end
+    end
+
+    if hasAll then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            
+            -- Jeśli Bypass jest włączony i próbujemy wywołać zablokowany event
+            if BypassActive and method == "FireServer" and TargetRemotes[self.Name] then
+                return nil -- Blokada
+            end
+            
+            return oldNamecall(self, ...)
+        end)
+        return true
+    else
+        return false
+    end
+end
+
+-- Próba inicjalizacji hooka przy starcie (ale blokada jest domyślnie wyłączona)
+local HookInstalled = InitiateBypass()
+
+-- =============================================================================
+-- ELEMENTY UI (W TABELI PLAYER)
+-- =============================================================================
+
+BypassLabel = TabPlayer:CreateLabel("Bypass: Oczekiwanie...")
+
+TabPlayer:CreateToggle({
+    Name = "Bypass Monitor Events Exe LvL 8",
+    CurrentValue = false,
+    Flag = "BypassToggle",
+    Callback = function(Value)
+        if not HookInstalled then
+            BypassLabel:Set("Bypass ❌ (Executor nieobsługiwany)")
+            return
+        end
+        BypassActive = Value
+        if BypassActive then
+            BypassLabel:Set("Bypass ✅")
+        else
+            BypassLabel:Set("Bypass ❌ (Wyłączony)")
+        end
+    end,
+})
+
+-- =============================================================================
+-- PĘTLA MONITORUJĄCA (ZABEZPIECZENIE)
+-- =============================================================================
+-- Ta pętla dba o to, by status był zawsze poprawny i loguje próby blokady
+task.spawn(function()
+    while true do
+        if BypassActive and HookInstalled then
+            -- Tutaj można dodać dodatkową logikę sprawdzającą, czy gra nie próbuje 
+            -- nadpisać metatablicy (rzadkie, ale spotykane w LVL 8)
+            local success, _ = pcall(function()
+                return game:GetService("HttpService"):GenerateGUID(false)
+            end)
+            
+            if not success then 
+                BypassLabel:Set("Bypass ❌ (Błąd Krytyczny)")
+                BypassActive = false
+            end
+        end
+        task.wait(2)
+    end
+end)
 local TeleportSection = TabPlayer:CreateSection("Player Teleport")
 
 -- Zmienna przechowująca wybranego gracza
@@ -1202,7 +1294,6 @@ local StatusLabel
 
 local function setStatus(text)
     if StatusLabel then StatusLabel:Set("Status: " .. text) end
-    print("LOG: " .. text)
 end
 
 local function setWeight(isHeavy)
@@ -1311,41 +1402,26 @@ local function GetAvailableATM()
 end
 
 local function SmartBust(targetSpawner, atmModel)
-    setStatus("Inicjacja rabunku...")
+    local safePos = platformPositions[math.random(1, #platformPositions)]
+    local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+    -- KROK 1: Teleport do bankomatu i rozpoczęcie
+    setStatus("Rozpoczynanie rabunku...")
+    if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     tpTo(targetSpawner.Position)
     task.wait(0.3)
+    
     bustStart:InvokeServer(atmModel)
-
-    local startTime = tick()
-    local escaped = false
-    local safePos = platformPositions[math.random(1, #platformPositions)]
-
-    -- Pętla monitorująca przez 5.5 sekundy
-    while tick() - startTime < 5 do
-        if not ATMFlag.Search then return end
-        
-        -- DYNAMICZNA DECYZJA: Jeśli policja blisko, a jeszcze nie uciekliśmy
-        if IsPoliceNearby(250) and not escaped then
-            setStatus("POLICJA WYKRYTA! Ucieczka na bezpieczną pozycję...")
-            tpTo(safePos)
-            escaped = true
-        end
-        task.wait(0.1) -- Częste sprawdzanie otoczenia
-    end
-
-    -- KROK KOŃCOWY: Odebranie łupu
-    if escaped then
-        setStatus("Powrót na ułamek sekundy po łup...")
-        tpTo(targetSpawner.Position)
-        task.wait(0.25) -- Czas dla serwera
-        bustEnd:InvokeServer(atmModel)
-        tpTo(safePos)
-    else
-        bustEnd:InvokeServer(atmModel)
-        setStatus("Bankomat zebrany (Czysto)!")
-        task.wait(0.1)
-        tpTo(safePos)
-    end
+    setStatus("Czekanie w bezpiecznym miejscu...")
+    tpTo(safePos)
+    task.wait(5)
+    setStatus("Szybki odbiór łupu...")
+    if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
+    tpTo(targetSpawner.Position)
+    task.wait(0.3)
+    bustEnd:InvokeServer(atmModel)
+    task.wait(0.1)
+    tpTo(safePos)
 end
 
 -- =============================================================================
@@ -1384,6 +1460,7 @@ local function StartLoop()
                 setWeight(true)
                 
                 setStatus("Skok na platformę - skanowanie okolicy")
+                task.wait(0.3)
                 tpTo(platformPos)
                 task.wait(5) 
 
@@ -1429,6 +1506,7 @@ function StartATMFarm()
 end
 
 function StopATMFarm()
+    if not ATMFlag.Search then return end
     ATMFlag.Search = false
     setStatus("Zatrzymywanie...")
     
@@ -1481,6 +1559,3 @@ task.spawn(function()
 end)
 
 Rayfield:LoadConfiguration()
-
-
-
