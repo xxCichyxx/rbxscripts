@@ -170,26 +170,12 @@ local TargetRemotes = {
     ["loadTime"] = true, ["InformLoadingEventFunnel"] = true, ["InformGeneralEventFunnel"] = true
 }
 
--- 2. FUNKCJA ANALIZUJĄCA ARGUMENTY (Dla specyficznych blokad jak Boats)
-local function ShouldBlockByArgs(remoteName, args)
-    -- Blokada Location: "Enter", "Boats"
-    if remoteName == "Location" and args[1] == "Enter" and args[2] == "Boats" then
-        return true
-    end
-    return false
-end
-
 -- 3. GŁÓWNA FUNKCJA WERYFIKUJĄCA
 local function IsNuclearBlocked(remote, args)
     local name = tostring(remote)
     
     -- Blokada po nazwie / HEX
     if TargetRemotes[name] or string.match(name, "^%x%x%x%x") then
-        return true
-    end
-    
-    -- Blokada po argumentach (np. te łodzie)
-    if ShouldBlockByArgs(name, args) then
         return true
     end
     
