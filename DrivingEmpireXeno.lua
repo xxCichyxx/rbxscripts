@@ -156,9 +156,9 @@ TabPlayer:CreateButton({
 -- KONFIGURACJA I ZMIENNE
 -- =============================================================================
 local BypassActive = false
+local HookInstalled = false
 local BlockCount = 0
 
--- 1. Lista absolutna (Blokuj wszystko z tych eventów)
 local TargetRemotes = {
     ["StarwatchClientEventIngestor"] = true,
     ["rsp"] = true, ["rps"] = true, ["rsi"] = true, ["rs"] = true, ["rsw"] = true,
@@ -170,86 +170,92 @@ local TargetRemotes = {
     ["loadTime"] = true, ["InformLoadingEventFunnel"] = true, ["InformGeneralEventFunnel"] = true
 }
 
--- 3. GŁÓWNA FUNKCJA WERYFIKUJĄCA
-local function IsNuclearBlocked(remote, args)
-    local name = tostring(remote)
-    
-    -- Blokada po nazwie / HEX
-    if TargetRemotes[name] or string.match(name, "^%x%x%x%x") then
-        return true
-    end
-    
-    -- Blokada po ścieżce (Starwatch/Packages)
-    local s, path = pcall(function() return remote:GetFullName() end)
-    if s then
-        local lp = path:lower()
-        if string.find(lp, "starwatch") or string.find(lp, "telemetry") then
-            return true
-        end
-    end
-    
-    return false
-end
+local BypassLabel = TabPlayer:CreateLabel("Bypass: System Uzbrojony (Czekam na aktywację)")
 
 -- =============================================================================
--- POTRÓJNY HOOK SYSTEMOWY
+-- 1. INSTALACJA NATYCHMIASTOWA (EARLY HOOK)
 -- =============================================================================
-
-local function InstallTotalBypass()
-    -- Hook 1: Namecall (Najważniejszy dla wydajności)
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
-        
-        if BypassActive and (method == "FireServer" or method == "InvokeServer") then
-            if IsNuclearBlocked(self, args) then
-                BlockCount = BlockCount + 1
-                return nil
+local function InstallEarlyHook()
+    if HookInstalled then return end
+    
+    local success, err = pcall(function()
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+            
+            -- Jeśli bypass jest aktywny, sprawdzamy każdy pakiet FireServer
+            if BypassActive and (method == "FireServer" or method == "InvokeServer") then
+                local remoteName = tostring(self)
+                
+                -- Sprawdzanie po nazwie lub wzorcu HEX (dla dynamicznych ID)
+                if TargetRemotes[remoteName] or string.match(remoteName, "^%x%x%x%x") then
+                    BlockCount = BlockCount + 1
+                    
+                    -- Specjalna logika dla eventu ładującego: udajemy, że wszystko OK, ale nie wysyłamy
+                    if remoteName == "loadTime" then
+                         -- Możemy tu zmodyfikować argumenty, jeśli gra wymaga odpowiedzi, 
+                         -- ale zazwyczaj wystarczy 'return nil' aby ubić pakiet.
+                         return nil 
+                    end
+                    
+                    return nil -- Blokada wysyłania do serwera
+                end
             end
-        end
-        return oldNamecall(self, ...)
+            
+            return oldNamecall(self, ...)
+        end)
     end)
-
-    -- Hook 2: Direct FireServer (Dla skryptów omijających namecall)
-    local oldFireServer
-    oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
-        local args = {...}
-        if BypassActive and IsNuclearBlocked(self, args) then
-            return nil
-        end
-        return oldFireServer(self, ...)
-    end)
-
-    -- Hook 3: Direct InvokeServer
-    local oldInvokeServer
-    oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, function(self, ...)
-        local args = {...}
-        if BypassActive and IsNuclearBlocked(self, args) then
-            return nil
-        end
-        return oldInvokeServer(self, ...)
-    end)
+    
+    if success then
+        HookInstalled = true
+        print("[BYPASS] Hook zainstalowany pomyślnie.")
+    else
+        warn("[BYPASS] Błąd krytyczny: " .. tostring(err))
+    end
 end
 
-pcall(InstallTotalBypass)
+-- =============================================================================
+-- 2. AUTOMATYCZNE URUCHOMIENIE PRZY SERVER HOP
+-- =============================================================================
+-- Hook musi być zainstalowany ZANIM Toggle zostanie kliknięty, 
+-- ale działać będzie tylko gdy BypassActive == true.
+InstallEarlyHook()
 
 -- =============================================================================
--- UI I MONITORING
+-- 3. PĘTLA MONITORUJĄCA I SYNCHRONIZUJĄCA
 -- =============================================================================
-local BypassLabel = TabPlayer:CreateLabel("Bypass: System Ready")
-
 task.spawn(function()
     while true do
         if BypassActive then
-            BypassLabel:Set("Bypass: 🔒 AKTYWNY | Bloki: " .. BlockCount)
+            -- Sprawdzamy, czy folder Remotes w ogóle istnieje (czy gra już "żyje")
+            local remotesFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+            
+            if remotesFolder then
+                local children = remotesFolder:GetChildren()
+                BypassLabel:Set("Status: 🔒 AKTYWNY ("..BlockCount.." zablokowanych)")
+                
+                -- Dynamiczna weryfikacja nowych eventów
+                for _, remote in ipairs(children) do
+                    local n = remote.Name
+                    if string.match(n, "^%x%x%x%x") and not TargetRemotes[n] then
+                        -- Automatycznie dodajemy nowo odkryte dynamiczne ID do listy blokowanych
+                        TargetRemotes[n] = true
+                    end
+                end
+            else
+                BypassLabel:Set("Status: ⏳ Oczekiwanie na silnik gry...")
+            end
         else
-            BypassLabel:Set("Bypass: 💤 WYŁĄCZONY")
+            BypassLabel:Set("Status: 💤 Wyłączony")
         end
-        task.wait(1)
+        task.wait(2) -- Szybsze odświeżanie (co 2 sekundy)
     end
 end)
 
+-- =============================================================================
+-- 4. TOGGLE
+-- =============================================================================
 TabPlayer:CreateToggle({
     Name = "Bypass Monitor Events Exe LvL 8",
     CurrentValue = false,
@@ -257,11 +263,12 @@ TabPlayer:CreateToggle({
     Callback = function(Value)
         BypassActive = Value
         if Value then
+            -- Przy włączaniu zerujemy licznik, by widzieć nowe bloki
             BlockCount = 0
             Rayfield:Notify({
-                Title = "Bypass Nuclear Engine",
-                Content = "Blokowanie rsp/rps oraz Location:Boats aktywne.",
-                Duration = 4,
+                Title = "Bypass Aktywny",
+                Content = "Blokowanie pakietów startowych i telemetrii włączone.",
+                Duration = 3,
                 Image = 4483362458,
             })
         end
