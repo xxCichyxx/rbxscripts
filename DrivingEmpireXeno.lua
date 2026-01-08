@@ -15,8 +15,9 @@ local LocalPlayer = game.Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local bustStart = remotes:WaitForChild("AttemptATMBustStart")
 local bustEnd = remotes:WaitForChild("AttemptATMBustComplete")
-local RemoteStart = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestStartJobSession")
-local RemoteEnd = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("RequestEndJobSession")
+local RemoteStart = remotes:WaitForChild("RequestStartJobSession")
+local RemoteEnd = remotes:WaitForChild("RequestEndJobSession")
+local captureRemote = remotes:WaitForChild("CaptureItem")
 
 local antiAfkConnection
 
@@ -1172,7 +1173,7 @@ local function collectItem(eventName, itemId, padObject)
         [3] = padObject
     }
     pcall(function()
-        remote:InvokeServer(unpack(args))
+        captureRemote:InvokeServer(unpack(args))
     end)
 end
 
@@ -1211,7 +1212,6 @@ task.spawn(function()
     end
 end)
 
--- 7. PROCES DLA PREZENTÓW (Remote)
 task.spawn(function()
     while true do
         if flags.PresentFarm then
@@ -1248,7 +1248,10 @@ local spawnPos = Vector3.new(-315.4537353515625, 17.595108032226562, -1660.68432
 local platformPositions = {
     Vector3.new(-978.8837890625, -166, 313.3407897949219),
     Vector3.new(-484.3203430175781, -166, -1226.457275390625),
-    Vector3.new(220.6251220703125, -166, 137.8120880126953)
+    Vector3.new(220.6251220703125, -166, 137.8120880126953),
+    Vector3.new(-94.29008483886719, -166, 2340.5263671875),
+    Vector3.new(-866.1265258789062, -166, 3189.411865234375),
+    Vector3.new(-2068.16015625, -166, 4206.7861328125),
 }
 local sellPos1 = Vector3.new(-2520.495849609375, 15.116586685180664, 4035.560791015625)
 local sellPos2 = Vector3.new(-2542.12646484375, 15.116586685180664, 4030.9150390625)
@@ -1369,28 +1372,63 @@ local function GetAvailableATM()
     end
     return nil, nil
 end
-
+local function CheckBagLimit()
+    if not ATMFlag.Search then return false end
+    
+    local currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+    local limit = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 25
+    
+    if currentCrimes >= limit then
+        setStatus("Limit osiągnięty ("..currentCrimes..") - Sprzedaż...")
+        
+        -- Pętla sprzedaży dopóki worki nie znikną
+        while currentCrimes >= limit and ATMFlag.Search do
+            SetNoclip(true) -- Upewniamy się, że noclip działa przy sprzedaży
+            tpTo(sellPos1)
+            task.wait(0.5)
+            setStatus("Idę do punktu sprzedaży...")
+            SimpleGoTo(sellPos2, 2)
+            task.wait(2) -- Czas na przetworzenie sprzedaży przez serwer
+            
+            currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+        end
+        
+        setStatus("Sprzedano! Wracam do pracy.")
+        return true -- Zwraca true, jeśli sprzedaż się odbyła
+    end
+    return false
+end
 local function SmartBust(targetSpawner, atmModel)
+    if not ATMFlag.Search then return end
+    
     local safePos = platformPositions[math.random(1, #platformPositions)]
     local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 
-    -- KROK 1: Teleport do bankomatu i rozpoczęcie
+    -- KROK 1: Start
     setStatus("Rozpoczynanie rabunku...")
     if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     tpTo(targetSpawner.Position)
-    task.wait(0.3)
+    task.wait(0.4)
     
     bustStart:InvokeServer(atmModel)
+    
+    -- KROK 2: Ucieczka na bezpieczną platformę
     setStatus("Czekanie w bezpiecznym miejscu...")
     tpTo(safePos)
-    task.wait(5)
-    setStatus("Szybki odbiór łupu...")
+    task.wait(5.2) -- Lekko wydłużone dla bezpieczeństwa
+    
+    -- KROK 3: Odbiór
+    setStatus("Odbiór łupu...")
     if root then root.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     tpTo(targetSpawner.Position)
-    task.wait(0.3)
+    task.wait(0.4)
     bustEnd:InvokeServer(atmModel)
-    task.wait(0.1)
+    
+    task.wait(0.2)
     tpTo(safePos)
+    
+    -- KLUCZOWE: Sprawdź limit natychmiast po rabunku!
+    CheckBagLimit()
 end
 
 -- =============================================================================
@@ -1400,44 +1438,32 @@ end
 local function StartLoop()
     task.spawn(function()
         while ATMFlag.Search do
-            -- KROK 1: Najpierw sprawdź worki
-            local currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
-            local limit = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 25
-            
-            if currentCrimes >= limit then
-                setStatus("Limit osiągnięty - Rozpoczynam procedurę sprzedaży...")
-                repeat
-                    tpTo(sellPos1) -- Teleport w okolice sklepu
-                    task.wait(0.5)
-                    setStatus("Idę do punktu sprzedaży...")
-                    SimpleGoTo(sellPos2, 2)
-                    task.wait(2)
-                    
-                    currentCrimes = LocalPlayer.Character and LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
-                    if currentCrimes >= limit then
-                        setStatus("Błąd sprzedaży (Full Bags) - Ponawiam...")
-                    end
-                until currentCrimes < limit or not ATMFlag.Search
-                setStatus("Sprzedano! Wracam do farmy.")
-            end
+            -- 1. Sprawdź limit przed rozpoczęciem nowej rundy platform
+            CheckBagLimit()
 
-            -- KROK 2: Szukanie bankomatów
+            -- 2. Przeszukiwanie platform
             for _, platformPos in ipairs(platformPositions) do
                 if not ATMFlag.Search then break end
+                
+                -- Sprawdź limit przed skokiem na KAŻDĄ kolejną platformę
+                -- (Zapobiega to lataniu z pełnymi workami po mapie)
+                if CheckBagLimit() then
+                    -- Jeśli sprzedał, wróć na platformę startową ronde
+                    tpTo(platformPos) 
+                end
                 
                 SetNoclip(true)
                 setWeight(true)
                 
-                setStatus("Skok na platformę - skanowanie okolicy")
-                task.wait(0.3)
+                setStatus("Skanowanie platformy...")
                 tpTo(platformPos)
-                task.wait(5) 
+                task.wait(5) -- Czas na załadowanie się ATM w streamingu
 
                 local spawner, atm = GetAvailableATM()
                 if spawner and atm then
-                    SmartBust(spawner, atm) -- Używamy nowej inteligentnej funkcji
-                    setStatus("Cooldown po rabunku (5s)...")
-                    task.wait(5)
+                    SmartBust(spawner, atm)
+                    setStatus("Przerwa techniczna (Cooldown)...")
+                    task.wait(2)
                 end
             end
             task.wait(0.1)
@@ -1518,12 +1544,17 @@ ProgressLabel = TabFarm:CreateLabel("Postęp worków: 0 / 0")
 -- Pętla UI (Progress)
 task.spawn(function()
     while true do
-        if ProgressLabel and LocalPlayer.Character then
-            local cur = LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
-            local lim = Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue or 0
-            ProgressLabel:Set("Postęp worków: " .. cur .. " / " .. lim)
-        end
-        task.wait(1)
+        pcall(function()
+            if ProgressLabel and LocalPlayer.Character then
+                local cur = LocalPlayer.Character:GetAttribute("CrimesCommitted") or 0
+                local lim = (Rayfield.Flags.BagSlider and Rayfield.Flags.BagSlider.CurrentValue) or 0
+                ProgressLabel:Set("Postęp worków: " .. cur .. " / " .. lim)
+                if cur >= lim and lim > 0 then
+                    ProgressLabel:Set("Postęp worków: " .. cur .. " / " .. lim .. " (FULL! 💰)")
+                end
+            end
+        end)
+        task.wait(0.5)
     end
 end)
 Rayfield:LoadConfiguration()
