@@ -17,7 +17,6 @@ local bustStart = remotes:WaitForChild("AttemptATMBustStart")
 local bustEnd = remotes:WaitForChild("AttemptATMBustComplete")
 local RemoteStart = remotes:WaitForChild("RequestStartJobSession")
 local RemoteEnd = remotes:WaitForChild("RequestEndJobSession")
-local captureRemote = remotes:WaitForChild("CaptureItem")
 
 local antiAfkConnection
 
@@ -91,7 +90,6 @@ local Window = Rayfield:CreateWindow({
 local TabPlayer = Window:CreateTab("Player", "user")
 local TabVehicle = Window:CreateTab("Vehicle", "car-front")
 local TabFarm = Window:CreateTab("Farms", "tractor")
-local TabFarmWinter = Window:CreateTab("❄️ Winter Farms ❄️")
 local TabStats = Window:CreateTab("Statistics", "bar-chart-2")
 local TabVisuals = Window:CreateTab("Visuals", "eye")
 local TabJobs = Window:CreateTab("Jobs", "briefcase")
@@ -1202,106 +1200,6 @@ task.spawn(function()
         CrimeLabel:Set("🦹 Criminals: " .. tostring(countCrime))
         CitizenLabel:Set("🏘️ Citizens: " .. tostring(countCitizen))
         TotalLabel:Set("👥 Total Players: " .. tostring(#allPlayers))
-    end
-end)
-
-
---------------------------- Farms Event ----------------------------------
-local flags = {
-    PresentFarm = false,
-    ElfFarm = false
-}
-TabFarmWinter:CreateToggle({
-   Name = "Auto Farm Presents",
-   CurrentValue = false,
-   Flag = "PresentFarm", -- To jest flaga używana w Twoim task.spawn
-   Callback = function(Value)
-      flags.PresentFarm = Value
-   end,
-})
-
-TabFarmWinter:CreateToggle({
-   Name = "Collect 20 Elf",
-   CurrentValue = false,
-   Flag = "ElfFarm", -- To jest flaga używana w Twoim task.spawn
-   Callback = function(Value)
-      flags.ElfFarm = Value
-   end,
-})
-
--- 4. FUNKCJA ZBIERANIA (Argumenty z Twoich logów)
-local function collectItem(eventName, itemId, padObject)
-    if not padObject then return end -- Dodatkowe zabezpieczenie przed spamem błędów
-    local args = {
-        [1] = eventName,
-        [2] = itemId,
-        [3] = padObject
-    }
-    pcall(function()
-        captureRemote:InvokeServer(unpack(args))
-    end)
-end
-
--- 6. PROCES DLA ELFÓW (Teleportacja)
-task.spawn(function()
-    while true do
-        if flags.ElfFarm then
-            local liveOps = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("LiveOpsPersistent")
-            local eFolder = liveOps and liveOps.Christmas2025.Spawners.ElfHunt
-            
-            if eFolder then
-                for _, model in pairs(eFolder:GetChildren()) do
-                    if not flags.ElfFarm then break end
-                    
-                    local char = LocalPlayer.Character -- Poprawione z player na LocalPlayer
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    
-                    if hrp and model:IsA("Model") then
-                        -- Teleportacja i kotwiczenie
-                        hrp.CFrame = model:GetPivot() * CFrame.new(0, 10, 0)
-                        hrp.Anchored = true
-                        task.wait(3)
-                        hrp.Anchored = false
-                        
-                        local pad = model:FindFirstChild("PresentSpawnerPad", true) or model.PrimaryPart
-                        if pad then
-                            local itemId = pad:GetAttribute("ItemId")
-                            collectItem("ElfHunt", itemId or 0, pad)
-                        end
-                        task.wait(0.5)
-                    end
-                end
-            end
-        end
-        task.wait(1)
-    end
-end)
-
-task.spawn(function()
-    while true do
-        if flags.PresentFarm then
-            local liveOps = workspace:FindFirstChild("Game") and workspace.Game:FindFirstChild("LiveOpsPersistent")
-            local pFolder = liveOps and liveOps.Christmas2025.Spawners.PresentHunt
-            
-            if pFolder then
-                local children = pFolder:GetChildren()
-                for i = 1, #children do
-                    if not flags.PresentFarm then break end
-                    local model = children[i]
-                    local pad = model:FindFirstChild("PresentSpawnerPad", true)
-                    
-                    if pad then
-                        local itemId = pad:GetAttribute("ItemId")
-                        if itemId then
-                            collectItem("Christmas2025Presents", itemId, pad)
-                        end
-                    end
-                    -- Zabezpieczenie co 30 przedmiotów
-                    if i % 30 == 0 then task.wait() end
-                end
-            end
-        end
-        task.wait(0.5)
     end
 end)
 
