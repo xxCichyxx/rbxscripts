@@ -1338,12 +1338,12 @@ end
 local Config = {
     task1 = 0.5, -- teleport do sellpos1
     task2 = 2.0, -- przetwarzanie sellpos2
-    task3 = 0.3, -- wczytanie ATM (start)
+    task3 = 0.15, -- wczytanie ATM (start)
     task4 = 5.0, -- cooldown rabowania
-    task5 = 0.3, -- wczytanie ATM (odbiór)
-    task6 = 0.2, -- finalizacja rabunku
+    task5 = 0.15, -- wczytanie ATM (odbiór)
+    task6 = 0.0, -- finalizacja rabunku
     task7 = 5.0, -- czas ładowania na platformach
-    task8 = 0.2, -- przerwa chwilowa
+    task8 = 0.0, -- przerwa chwilowa
 }
 local function notifyUpdate(taskName, value)
     Rayfield:Notify({
@@ -1646,4 +1646,5 @@ task.spawn(function()
     end
 end)
 Rayfield:LoadConfiguration()
+
 
