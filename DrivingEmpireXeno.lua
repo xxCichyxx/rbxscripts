@@ -1614,12 +1614,12 @@ TabFarm:CreateButton({
     Callback = function()
         Config.task1 = 0.5
         Config.task2 = 2.0
-        Config.task3 = 0.3
+        Config.task3 = 0.15
         Config.task4 = 5.0
-        Config.task5 = 0.3
-        Config.task6 = 0.2
+        Config.task5 = 0.15
+        Config.task6 = 0.0
         Config.task7 = 5.0
-        Config.task8 = 0.2
+        Config.task8 = 0.0
         Rayfield:Notify({
             Title = "Reset Konfiguracji",
             Content = "Przywrócono wartości domyślne.",
@@ -1646,3 +1646,4 @@ task.spawn(function()
     end
 end)
 Rayfield:LoadConfiguration()
+
