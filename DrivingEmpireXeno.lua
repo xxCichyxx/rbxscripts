@@ -1451,7 +1451,37 @@ local function StartLoop()
         end
     end)
 end
+local bodyVelocity -- Zmienna pomocnicza do przechowywania obiektu
 
+function ToggleLevitation(enable)
+    local character = game.Players.LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not rootPart then return end
+
+    if enable then
+        -- Jeśli już istnieje, usuwamy stary
+        if rootPart:FindFirstChild("LevitationForce") then
+            rootPart.LevitationForce:Destroy()
+        end
+
+        -- Tworzymy siłę, która trzyma postać w miejscu
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Name = "LevitationForce"
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- Nie poruszaj się
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge) -- Siła "nieskończona"
+        bodyVelocity.Parent = rootPart
+        
+        -- Opcjonalnie: zatrzymujemy obecny pęd postaci
+        rootPart.Velocity = Vector3.new(0, 0, 0)
+    else
+        -- Wyłączanie: szukamy obiektu i go niszczymy
+        local force = rootPart:FindFirstChild("LevitationForce")
+        if force then
+            force:Destroy()
+        end
+    end
+end
 -- =============================================================================
 -- 6. START / STOP (ZARZĄDZANIE KROKAMI)
 -- =============================================================================
@@ -1472,7 +1502,8 @@ function StartATMFarm()
     task.wait(0.5)
 
     -- KROK 3: Fizyka i Noclip
-    setStatus("Krok 3: Włączanie Noclip i Weight")
+    setStatus("Krok 3: Włączanie Funkcji")
+    ToggleLevitation(true)
     SetNoclip(true)
     setWeight(true)
     task.wait(1)
@@ -1490,6 +1521,7 @@ function StopATMFarm()
     task.wait(0.5)
     
     pcall(function() RemoteEnd:FireServer("jobPad") end)
+    ToggleLevitation(false)
     SetNoclip(false)
     setWeight(false)
     removeAllPlatforms()
@@ -1646,5 +1678,6 @@ task.spawn(function()
     end
 end)
 Rayfield:LoadConfiguration()
+
 
 
