@@ -158,7 +158,7 @@ local HookInstalled = false
 local BlockCount = 0
 
 local TargetRemotes = {
-    ["StarwatchClientEventIngestor"] = true,
+    ["StarwatchClientEventIngestor"] = true, ["_network"] = true,
     ["rsp"] = true, ["rps"] = true, ["rsi"] = true, ["rs"] = true, ["rsw"] = true,
     ["ptsstop"] = true, ["ptsstart"] = true, ["SdkTelemetryRemote"] = true,
     ["TeleportInfo"] = true, ["SendLogString"] = true, ["GetClientLogs"] = true,
@@ -1644,4 +1644,5 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
+
 Rayfield:LoadConfiguration()
