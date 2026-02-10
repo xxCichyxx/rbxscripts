@@ -120,13 +120,24 @@ ScrollContainer.BackgroundTransparency = 1
 ScrollContainer.BorderSizePixel = 0
 ScrollContainer.ScrollBarThickness = 4
 ScrollContainer.ScrollBarImageColor3 = Config.Colors.Accent
-ScrollContainer.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+-- Fix: Use string "Y" instead of Enum.AutomaticCanvasSize.Y if Enum is not available or buggy in some environments,
+-- but standard Roblox API uses Enum.AutomaticCanvasSize.Y.
+-- The error "AutomaticCanvasSize is not a valid member of Enum" suggests an older environment or a specific executor quirk.
+-- We will try to set it safely.
+pcall(function()
+    ScrollContainer.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+end)
 ScrollContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.Parent = ScrollContainer
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 8)
+
+-- Fallback for AutomaticCanvasSize if it failed
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
+end)
 
 local UIPadding = Instance.new("UIPadding")
 UIPadding.PaddingTop = UDim.new(0, 5)
