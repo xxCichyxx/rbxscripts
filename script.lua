@@ -4,7 +4,7 @@ local Config = {
     Colors = {
         Background = Color3.fromRGB(20, 20, 25),
         DarkContrast = Color3.fromRGB(15, 15, 20),
-        Accent = Color3.fromRGB(170, 85, 255), -- Purple
+        Accent = Color3.fromRGB(170, 85, 255),
         AccentHover = Color3.fromRGB(190, 105, 255),
         Text = Color3.fromRGB(240, 240, 240),
         TextDim = Color3.fromRGB(150, 150, 150)
@@ -20,17 +20,13 @@ local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 
--- 1. Singleton Pattern: Prevent multiple instances
+-- 1. Singleton Pattern: Zapobieganie dublowaniu GUI
 local guiName = "ScriptHub_PurpleTheme"
-if CoreGui:FindFirstChild(guiName) then
-    CoreGui[guiName]:Destroy()
-elseif gethui and gethui():FindFirstChild(guiName) then
-    gethui()[guiName]:Destroy()
-end
+local existing = CoreGui:FindFirstChild(guiName) or (gethui and gethui():FindFirstChild(guiName))
+if existing then existing:Destroy() end
 
--- 2. Create GUI
+-- 2. Tworzenie GUI
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = guiName
 ScreenGui.ResetOnSpawn = false
@@ -45,22 +41,20 @@ else
     ScreenGui.Parent = CoreGui
 end
 
--- 3. Main Frame Construction
+-- 3. Konstrukcja Głównego Okna
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 320, 0, 450)
 MainFrame.Position = UDim2.new(0.5, -160, 0.5, -225)
 MainFrame.BackgroundColor3 = Config.Colors.Background
 MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = false -- Allow shadow/glow to show
+MainFrame.ClipsDescendants = true
 MainFrame.Parent = ScreenGui
 
--- Rounded Corners
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 12)
 UICorner.Parent = MainFrame
 
--- Stroke (Border)
 local UIStroke = Instance.new("UIStroke")
 UIStroke.Color = Config.Colors.Accent
 UIStroke.Thickness = 1.5
@@ -68,21 +62,21 @@ UIStroke.Transparency = 0.5
 UIStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 UIStroke.Parent = MainFrame
 
--- Glow/Shadow Effect
+-- Efekt Glow
 local Glow = Instance.new("ImageLabel")
 Glow.Name = "Glow"
 Glow.BackgroundTransparency = 1
 Glow.Position = UDim2.new(0, -15, 0, -15)
 Glow.Size = UDim2.new(1, 30, 1, 30)
 Glow.ZIndex = 0
-Glow.Image = "rbxassetid://5028857084" -- Soft glow texture
+Glow.Image = "rbxassetid://5028857084"
 Glow.ImageColor3 = Config.Colors.Accent
 Glow.ImageTransparency = 0.8
 Glow.ScaleType = Enum.ScaleType.Slice
 Glow.SliceCenter = Rect.new(24, 24, 276, 276)
 Glow.Parent = MainFrame
 
--- Title Bar
+-- Pasek Tytułowy
 local TitleBar = Instance.new("Frame")
 TitleBar.Name = "TitleBar"
 TitleBar.Size = UDim2.new(1, 0, 0, 40)
@@ -90,7 +84,6 @@ TitleBar.BackgroundTransparency = 1
 TitleBar.Parent = MainFrame
 
 local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Name = "Title"
 TitleLabel.Size = UDim2.new(1, -20, 1, 0)
 TitleLabel.Position = UDim2.new(0, 20, 0, 0)
 TitleLabel.BackgroundTransparency = 1
@@ -103,7 +96,6 @@ TitleLabel.RichText = true
 TitleLabel.Parent = TitleBar
 
 local Separator = Instance.new("Frame")
-Separator.Name = "Separator"
 Separator.Size = UDim2.new(1, 0, 0, 1)
 Separator.Position = UDim2.new(0, 0, 0, 40)
 Separator.BackgroundColor3 = Config.Colors.Accent
@@ -111,7 +103,7 @@ Separator.BackgroundTransparency = 0.8
 Separator.BorderSizePixel = 0
 Separator.Parent = MainFrame
 
--- Scroll Container
+-- Kontener Przewijany (Scroll)
 local ScrollContainer = Instance.new("ScrollingFrame")
 ScrollContainer.Name = "ScrollContainer"
 ScrollContainer.Size = UDim2.new(1, -20, 1, -55)
@@ -120,13 +112,6 @@ ScrollContainer.BackgroundTransparency = 1
 ScrollContainer.BorderSizePixel = 0
 ScrollContainer.ScrollBarThickness = 4
 ScrollContainer.ScrollBarImageColor3 = Config.Colors.Accent
--- Fix: Use string "Y" instead of Enum.AutomaticCanvasSize.Y if Enum is not available or buggy in some environments,
--- but standard Roblox API uses Enum.AutomaticCanvasSize.Y.
--- The error "AutomaticCanvasSize is not a valid member of Enum" suggests an older environment or a specific executor quirk.
--- We will try to set it safely.
-pcall(function()
-    ScrollContainer.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
-end)
 ScrollContainer.Parent = MainFrame
 
 local UIListLayout = Instance.new("UIListLayout")
@@ -134,9 +119,8 @@ UIListLayout.Parent = ScrollContainer
 UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 8)
 
--- Fallback for AutomaticCanvasSize if it failed
-UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ScrollContainer.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
+pcall(function()
+    ScrollContainer.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
 end)
 
 local UIPadding = Instance.new("UIPadding")
@@ -146,17 +130,11 @@ UIPadding.PaddingLeft = UDim.new(0, 2)
 UIPadding.PaddingRight = UDim.new(0, 2)
 UIPadding.Parent = ScrollContainer
 
--- 4. Draggable System (Smooth)
-local dragging
-local dragInput
-local dragStart
-local startPos
-
+-- 4. System Przeciągania (Draggable)
+local dragging, dragInput, dragStart, startPos
 local function update(input)
     local delta = input.Position - dragStart
     local targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    
-    -- Smooth Tween
     TweenService:Create(MainFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
 end
 
@@ -165,11 +143,8 @@ TitleBar.InputBegan:Connect(function(input)
         dragging = true
         dragStart = input.Position
         startPos = MainFrame.Position
-
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
@@ -181,41 +156,24 @@ TitleBar.InputChanged:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        update(input)
-    end
+    if input == dragInput and dragging then update(input) end
 end)
 
--- 5. Logic & Functions
-
+-- 5. Funkcje Logiki
 local function executeScript(scriptName)
     local url = Config.BaseUrl .. scriptName
-
-    -- Notification (Simple print for now, could be UI based)
     print("Fetching: " .. url)
-
-    local success, result = pcall(function()
-        return game:HttpGet(url)
-    end)
+    local success, result = pcall(function() return game:HttpGet(url) end)
 
     if success then
         local func, err = loadstring(result)
         if func then
             task.spawn(func)
         else
-            warn("Syntax Error in " .. scriptName .. ": " .. tostring(err))
+            warn("Syntax Error: " .. tostring(err))
         end
     else
-        warn("Failed to fetch " .. scriptName .. ": " .. tostring(result))
-        -- Fallback for sunc if fetch fails (optional, based on previous request)
-        if scriptName == "sunc.lua" then
-             getgenv().sUNCDebug = {
-                ["printcheckpoints"] = false,
-                ["delaybetweentests"] = 0,
-                ["printtesttimetaken"] = false,
-            }
-            loadstring(game:HttpGet("https://script.sunc.su/"))()
-        end
+        warn("Failed to fetch " .. scriptName)
     end
 end
 
@@ -241,7 +199,6 @@ local function createButton(name, callback)
     BtnStroke.Parent = Button
 
     local BtnText = Instance.new("TextLabel")
-    BtnText.Name = "Label"
     BtnText.Size = UDim2.new(1, -20, 1, 0)
     BtnText.Position = UDim2.new(0, 15, 0, 0)
     BtnText.BackgroundTransparency = 1
@@ -252,109 +209,59 @@ local function createButton(name, callback)
     BtnText.TextXAlignment = Enum.TextXAlignment.Left
     BtnText.Parent = Button
 
-    local Icon = Instance.new("ImageLabel")
-    Icon.Name = "Icon"
-    Icon.Size = UDim2.new(0, 16, 0, 16)
-    Icon.Position = UDim2.new(1, -30, 0.5, -8)
-    Icon.BackgroundTransparency = 1
-    Icon.Image = "rbxassetid://6031091004" -- Play icon arrow
-    Icon.ImageColor3 = Config.Colors.TextDim
-    Icon.Parent = Button
-
-    -- Animations
+    -- Animacje Hover
     Button.MouseEnter:Connect(function()
         TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 30)}):Play()
         TweenService:Create(BtnStroke, TweenInfo.new(0.2), {Transparency = 0.2}):Play()
-        TweenService:Create(Icon, TweenInfo.new(0.2), {ImageColor3 = Config.Colors.Accent}):Play()
-        TweenService:Create(BtnText, TweenInfo.new(0.2), {Position = UDim2.new(0, 20, 0, 0)}):Play() -- Slight shift
     end)
-
     Button.MouseLeave:Connect(function()
         TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundColor3 = Config.Colors.DarkContrast}):Play()
         TweenService:Create(BtnStroke, TweenInfo.new(0.2), {Transparency = 0.8}):Play()
-        TweenService:Create(Icon, TweenInfo.new(0.2), {ImageColor3 = Config.Colors.TextDim}):Play()
-        TweenService:Create(BtnText, TweenInfo.new(0.2), {Position = UDim2.new(0, 15, 0, 0)}):Play()
     end)
 
-    Button.MouseButton1Click:Connect(function()
-        -- Click Animation
-        local clickTween = TweenService:Create(Button, TweenInfo.new(0.05), {Size = UDim2.new(1, -4, 0, 36)})
-        clickTween:Play()
-        clickTween.Completed:Wait()
-        TweenService:Create(Button, TweenInfo.new(0.1), {Size = UDim2.new(1, 0, 0, 38)}):Play()
-
-        callback()
-    end)
+    Button.MouseButton1Click:Connect(callback)
 end
 
--- 6. Script List & Execution Logic
-
+-- 6. Lista skryptów
 local scripts = {
-    "sunc.lua",
-    "Test.lua",
-    "sunc2.lua",
-    "myriad.luau",
-    "Indenity.lua",
-    "unc-test.lua",
-    "unc-test2.lua",
-    "cherrytest.lua",
-    "unc-procent.lua",
-    "RequireChecker.lua",
-    "executor_vuln_test.lua"
+    "sunc.lua", "Test.lua", "sunc2.lua", "myriad.luau",
+    "Identity.lua", "unc-test.lua", "unc-test2.lua",
+    "cherrytest.lua", "unc-procent.lua", "RequireChecker.lua", "executor_vuln_test.lua"
 }
 
 for _, scriptName in ipairs(scripts) do
     createButton(scriptName, function()
         if scriptName == "sunc.lua" or scriptName == "sunc2.lua" then
-            if game.PlaceId == 90441122676618 then
-                executeScript(scriptName)
-            else
-                TeleportService:Teleport(90441122676618, LocalPlayer)
-            end
+            if game.PlaceId == 90441122676618 then executeScript(scriptName)
+            else TeleportService:Teleport(90441122676618, LocalPlayer) end
         elseif scriptName == "myriad.luau" then
-            if game.PlaceId == 80776325854596 then
-                executeScript(scriptName)
-            else
-                TeleportService:Teleport(80776325854596, LocalPlayer)
-            end
+            if game.PlaceId == 80776325854596 then executeScript(scriptName)
+            else TeleportService:Teleport(80776325854596, LocalPlayer) end
         else
             executeScript(scriptName)
         end
     end)
 end
 
--- 7. Toggle Visibility Logic with Animation
+-- 7. Toggle i Intro
 local isVisible = true
-
 local function toggleGui()
     isVisible = not isVisible
     if isVisible then
         MainFrame.Visible = true
-        MainFrame.Size = UDim2.new(0, 320, 0, 0)
-        MainFrame.ClipsDescendants = true
-        TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 450)}):Play()
-        task.delay(0.4, function()
-            if isVisible then MainFrame.ClipsDescendants = false end
-        end)
+        TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back), {Size = UDim2.new(0, 320, 0, 450)}):Play()
     else
-        MainFrame.ClipsDescendants = true
-        local tween = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Size = UDim2.new(0, 320, 0, 0)})
-        tween:Play()
-        tween.Completed:Connect(function()
-            if not isVisible then MainFrame.Visible = false end
-        end)
+        local t = TweenService:Create(MainFrame, TweenInfo.new(0.3), {Size = UDim2.new(0, 320, 0, 0)})
+        t:Play()
+        t.Completed:Connect(function() if not isVisible then MainFrame.Visible = false end end)
     end
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Config.Keybind then
-        toggleGui()
-    end
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Config.Keybind then toggleGui() end
 end)
 
--- Intro Animation
+-- Start Animation
 MainFrame.Size = UDim2.new(0, 320, 0, 0)
-MainFrame.ClipsDescendants = true
-MainFrame.Visible = true
-TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 320, 0, 450)}):Play()
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Size = UDim2.new(0, 320, 0, 450)}):Play()
 task.delay(0.5, function() MainFrame.ClipsDescendants = false end)
