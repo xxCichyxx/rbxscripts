@@ -1,6 +1,6 @@
 local Config = {
     Keybind = Enum.KeyCode.P,
-    ScriptPath = "utils/" -- Path to the scripts folder relative to executor's workspace
+    BaseUrl = "https://raw.githubusercontent.com/xxCichyxx/rbxscripts/refs/heads/main/utils/"
 }
 
 local Players = game:GetService("Players")
@@ -77,20 +77,12 @@ local function createButton(name, callback)
     Button.MouseButton1Click:Connect(callback)
 end
 
--- Function to execute script from file
+-- Function to execute script from GitHub
 local function executeScript(scriptName)
-    local path = Config.ScriptPath .. scriptName
-    local success, content = pcall(readfile, path)
-
-    if not success then
-        -- Try without folder prefix just in case or try alternative path
-        success, content = pcall(readfile, scriptName)
-    end
-
-    if not success then
-         -- Try rbxscripts/utils/ path
-         success, content = pcall(readfile, "rbxscripts/utils/" .. scriptName)
-    end
+    local url = Config.BaseUrl .. scriptName
+    local success, content = pcall(function()
+        return game:HttpGet(url)
+    end)
 
     if success then
         local func, err = loadstring(content)
@@ -100,7 +92,7 @@ local function executeScript(scriptName)
             warn("Error loading " .. scriptName .. ": " .. tostring(err))
         end
     else
-        warn("Could not read file: " .. scriptName)
+        warn("Could not fetch script from GitHub: " .. scriptName .. " (" .. url .. ")")
         -- Fallback for sunc.lua if file is missing
         if scriptName == "sunc.lua" then
              getgenv().sUNCDebug = {
