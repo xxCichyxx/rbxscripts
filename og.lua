@@ -794,19 +794,32 @@ local function ServerHop()
     local PlaceID = game.PlaceId
     local AllIDs = {}
     local actualHour = os.date("!*t").hour
-    local HttpService = game:GetService("HttpService") -- Upewnij się, że serwis jest dostępny
     
-    -- Odczyt poprzednich serwerów, żeby nie wracać w to samo miejsce
     local success, fileContent = pcall(function() return readfile("NotSameServers.json") end)
     if success then
-        AllIDs = HttpService:JSONDecode(fileContent)
+        local decodeSuccess, decodedData = pcall(function() return HttpService:JSONDecode(fileContent) end)
+        if decodeSuccess then AllIDs = decodedData end
     else
         table.insert(AllIDs, actualHour)
         writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
     end
 
     local function TPReturner()
-        local Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100'))
+        local rawData
+        local getSuccess = pcall(function()
+            rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100')
+        end)
+
+        if not getSuccess or not rawData then 
+            warn("Nie udało się pobrać listy serwerów.")
+            return false 
+        end
+
+        local decodeSuccess, Site = pcall(function() return HttpService:JSONDecode(rawData) end)
+        if not decodeSuccess or not Site or not Site.data then 
+            warn("Błąd dekodowania danych serwerów.")
+            return false 
+        end
         
         for _, v in pairs(Site.data) do
             if v.id ~= game.JobId and tonumber(v.maxPlayers) > tonumber(v.playing) then
@@ -822,11 +835,14 @@ local function ServerHop()
                     table.insert(AllIDs, tostring(v.id))
                     writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
                     
-                    -- --- KLUCZOWY MOMENT ---
-                    QueueScript() -- Kolejkujemy skrypt TUŻ przed ucieczką z serwera
-                    -- -----------------------
+                    -- PRZYGOTOWANIE DO AUTORUNU
+                    _G.AutoFarmEnabled = true -- Ustawiamy flagę przed ucieczką
+                    QueueScript() 
                     
-                    game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, v.id, game.Players.LocalPlayer)
+                    local tpSuccess, tpErr = pcall(function()
+                        game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, v.id, LocalPlayer)
+                    end)
+                    if not tpSuccess then warn("Teleport nieudany: " .. tostring(tpErr)) end
                     return true
                 end
             end
@@ -964,4 +980,5 @@ Rayfield:Notify({
    Content = "Witaj ponownie, Panie. Wszystkie Moduły Zostały Poprawnie Załadowane",
    Duration = 5,
    Image = 4483362458,
+
 })
