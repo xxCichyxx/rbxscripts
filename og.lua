@@ -798,7 +798,21 @@ end
 local function ServerHop()
     local PlaceID = game.PlaceId
     local AllIDs = {}
+    local TeleportService = game:GetService("TeleportService")
     
+    -- --- ZABEZPIECZENIE PRZED PEŁNYM SERWEREM ---
+    local teleportCheck
+    teleportCheck = TeleportService.TeleportInitFailed:Connect(function(player, result, errorMessage)
+        -- Jeśli powód to pełny serwer lub nie znaleziono gry, szukamy dalej
+        if result == Enum.TeleportResult.GameFull or result == Enum.TeleportResult.GameNotFound or result == Enum.TeleportResult.Flooded then
+            Rayfield:Notify({Title = "Błąd Skoku", Content = "Serwer pełny lub niedostępny. Szukam innego...", Duration = 3})
+            warn("Teleport nieudany: " .. tostring(result))
+            teleportCheck:Disconnect() -- Czyścimy event
+            ServerHop() -- Ponawiamy procedurę
+        end
+    end)
+    -- --------------------------------------------
+
     -- Odczyt bazy odwiedzonych serwerów
     local success, fileContent = pcall(function() return readfile("NotSameServers.json") end)
     if success then
@@ -808,40 +822,35 @@ local function ServerHop()
     local rawData = nil
     local attempt = 0
     
-    -- PĘTLA PONAWIANIA (Będzie bić w API aż Roblox odpowie)
+    -- PĘTLA PONAWIANIA POBIERANIA LISTY
     while not rawData do
         attempt = attempt + 1
-        
-        -- Powiadomienie o ponowieniu próby
         Rayfield:Notify({
             Title = "Server Hop",
-            Content = "Ponawiam próbę pobrania listy (Próba " .. attempt .. ")...",
-            Duration = 3
+            Content = "Pobieram listę (Próba " .. attempt .. ")...",
+            Duration = 2
         })
-        warn("Panie, ponawiam próbę nr " .. attempt .. "...")
 
         pcall(function()
-            -- Zmieniamy sortowanie co kilka prób, żeby oszukać system
             local sort = (attempt > 5) and "Asc" or "Desc"
             rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder='..sort..'&limit=100')
         end)
 
         if not rawData then
-            -- Czekamy 10 sekund + losowy czas (1-3s), aby nie spamować idealnie równo
             task.wait(10 + math.random(1, 3)) 
         end
     end
 
-    -- Dekodowanie danych
     local decodeSuccess, Site = pcall(function() return HttpService:JSONDecode(rawData) end)
     if not decodeSuccess or not Site.data then 
-        warn("Błąd danych. Restartuję procedurę...")
+        teleportCheck:Disconnect()
         return ServerHop() 
     end
     
     local possibleServers = {}
     for _, v in pairs(Site.data) do
-        if v.id ~= game.JobId and tonumber(v.maxPlayers) > tonumber(v.playing) then
+        -- POPRAWKA: v.playing < v.maxPlayers - 1 (zostawiamy 1 miejsce zapasu, by uniknąć "Full")
+        if v.id ~= game.JobId and tonumber(v.playing) < (tonumber(v.maxPlayers) - 1) then
             local isNew = true
             for _, existing in pairs(AllIDs) do
                 if tostring(v.id) == tostring(existing) then 
@@ -855,35 +864,31 @@ local function ServerHop()
 
     -- FINALIZACJA SKOKU
     if #possibleServers > 0 then
-        -- Losowy wybór z listy 100 serwerów
         local randomID = possibleServers[math.random(1, #possibleServers)]
         
-        -- Zapis do pamięci
         table.insert(AllIDs, tostring(randomID))
-        if #AllIDs > 150 then table.remove(AllIDs, 1) end -- Czyścimy starą historię
+        if #AllIDs > 150 then table.remove(AllIDs, 1) end
         writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
 
-        Rayfield:Notify({Title = "Sukces!", Content = "Serwer znaleziony. Przenoszę...", Duration = 3})
+        Rayfield:Notify({Title = "Sukces!", Content = "Serwer z wolnym miejscem znaleziony. Skaczę!", Duration = 3})
         
-        -- Przygotowanie do automatycznego startu na nowym serwerze
         _G.AutoFarmEnabled = true 
         QueueScript()
         
-        -- Losowe opóźnienie przed samym TP (dla bezpieczeństwa)
-        task.wait(math.random(2, 4))
+        task.wait(1)
         
         local tpSuccess, tpErr = pcall(function()
-            game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, randomID, game.Players.LocalPlayer)
+            TeleportService:TeleportToPlaceInstance(PlaceID, randomID, game.Players.LocalPlayer)
         end)
         
         if not tpSuccess then
-            warn("Błąd TP: " .. tostring(tpErr))
+            teleportCheck:Disconnect()
             return ServerHop()
         end
     else
-        -- Jeśli wszystkie serwery były już odwiedzone
-        Rayfield:Notify({Title = "Info", Content = "Brak nowych serwerów. Resetuję pamięć...", Duration = 3})
+        Rayfield:Notify({Title = "Info", Content = "Brak nowych serwerów z wolnym miejscem. Reset pamięci.", Duration = 3})
         writefile("NotSameServers.json", HttpService:JSONEncode({}))
+        teleportCheck:Disconnect()
         task.wait(2)
         return ServerHop()
     end
@@ -1018,5 +1023,6 @@ Rayfield:Notify({
    Image = 4483362458,
 
 })
+
 
 
