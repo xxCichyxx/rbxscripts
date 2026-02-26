@@ -778,63 +778,64 @@ local UnitWeights = {[""] = 0, ["K"] = 1, ["M"] = 2, ["B"] = 3, ["T"] = 4}
 
 -- --- FUNKCJA SERVER HOP ---
 -- 1. Funkcja kolejkująca (musi być zdefiniowana najpierw)
+local HttpService = game:GetService("HttpService")
+
+-- 1. Poprawiona funkcja kolejkująca (odpala farmę po skoku)
 local function QueueScript()
     local qot = syn and syn.queue_on_teleport or queue_on_teleport or (fluxus and fluxus.queue_on_teleport)
     if qot then
         qot([[
             repeat task.wait() until game:IsLoaded()
-            -- Panie, upewnij się, że ten link poniżej to DOKŁADNIE ten skrypt, który teraz edytujemy:
+            task.wait(3) -- Bufor na załadowanie GUI
+            _G.AutoFarmEnabled = true
+            _G.ServerHopEnabled = true
             loadstring(game:HttpGet("https://raw.githubusercontent.com/xxCichyxx/rbxscripts/refs/heads/main/og.lua"))()
         ]])
     end
 end
 
--- 2. Poprawiona funkcja ServerHop
+-- 2. Inteligentna funkcja ServerHop
 local function ServerHop()
     local PlaceID = game.PlaceId
     local AllIDs = {}
-    local HttpService = game:GetService("HttpService")
     
-    -- 1. Próba odczytu bazy odwiedzonych serwerów
+    -- Odczyt bazy odwiedzonych serwerów
     local success, fileContent = pcall(function() return readfile("NotSameServers.json") end)
     if success then
         pcall(function() AllIDs = HttpService:JSONDecode(fileContent) end)
     end
 
-    -- 2. Główna pętla ponawiania (Retrying)
     local rawData = nil
     local attempt = 0
     
+    -- PĘTLA PONAWIANIA (Będzie bić w API aż Roblox odpowie)
     while not rawData do
         attempt = attempt + 1
         
+        -- Powiadomienie o ponowieniu próby
+        Rayfield:Notify({
+            Title = "Server Hop",
+            Content = "Ponawiam próbę pobrania listy (Próba " .. attempt .. ")...",
+            Duration = 3
+        })
+        warn("Panie, ponawiam próbę nr " .. attempt .. "...")
+
         pcall(function()
-            rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Desc&limit=100')
+            -- Zmieniamy sortowanie co kilka prób, żeby oszukać system
+            local sort = (attempt > 5) and "Asc" or "Desc"
+            rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder='..sort..'&limit=100')
         end)
 
         if not rawData then
-            -- Powiadomienie dla Pana, że trwa walka o listę
-            Rayfield:Notify({
-                Title = "Błąd API (Rate Limit)",
-                Content = "Próba " .. attempt .. ": Roblox blokuje listę. Czekam 15s...",
-                Duration = 5
-            })
-            warn("Próba " .. attempt .. " nieudana. Czekam na odblokowanie limitu...")
-            task.wait(15) -- Dłuższy czas oczekiwania pozwala szybciej zdjąć blokadę
-        end
-        
-        -- Zabezpieczenie: jeśli po 10 próbach nadal nic, spróbujmy zmienić metodę sortowania
-        if attempt > 10 then
-            pcall(function()
-                rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100')
-            end)
+            -- Czekamy 10 sekund + losowy czas (1-3s), aby nie spamować idealnie równo
+            task.wait(10 + math.random(1, 3)) 
         end
     end
 
-    -- 3. Przetwarzanie danych po udanym pobraniu
+    -- Dekodowanie danych
     local decodeSuccess, Site = pcall(function() return HttpService:JSONDecode(rawData) end)
     if not decodeSuccess or not Site.data then 
-        warn("Dane serwerów są uszkodzone, restartuję funkcję...")
+        warn("Błąd danych. Restartuję procedurę...")
         return ServerHop() 
     end
     
@@ -843,33 +844,47 @@ local function ServerHop()
         if v.id ~= game.JobId and tonumber(v.maxPlayers) > tonumber(v.playing) then
             local isNew = true
             for _, existing in pairs(AllIDs) do
-                if tostring(v.id) == tostring(existing) then isNew = false break end
+                if tostring(v.id) == tostring(existing) then 
+                    isNew = false 
+                    break 
+                end
             end
             if isNew then table.insert(possibleServers, v.id) end
         end
     end
 
-    -- 4. Finalny skok
+    -- FINALIZACJA SKOKU
     if #possibleServers > 0 then
+        -- Losowy wybór z listy 100 serwerów
         local randomID = possibleServers[math.random(1, #possibleServers)]
         
-        -- Zapisujemy ID, by nie wracać
+        -- Zapis do pamięci
         table.insert(AllIDs, tostring(randomID))
-        if #AllIDs > 150 then table.remove(AllIDs, 1) end
+        if #AllIDs > 150 then table.remove(AllIDs, 1) end -- Czyścimy starą historię
         writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
 
-        Rayfield:Notify({Title = "Sukces!", Content = "Znaleziono serwer. Teleportacja...", Duration = 3})
+        Rayfield:Notify({Title = "Sukces!", Content = "Serwer znaleziony. Przenoszę...", Duration = 3})
         
-        -- Kolejkujemy skrypt i skaczemy
+        -- Przygotowanie do automatycznego startu na nowym serwerze
         _G.AutoFarmEnabled = true 
         QueueScript()
         
-        task.wait(1)
-        game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, randomID, game.Players.LocalPlayer)
+        -- Losowe opóźnienie przed samym TP (dla bezpieczeństwa)
+        task.wait(math.random(2, 4))
+        
+        local tpSuccess, tpErr = pcall(function()
+            game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, randomID, game.Players.LocalPlayer)
+        end)
+        
+        if not tpSuccess then
+            warn("Błąd TP: " .. tostring(tpErr))
+            return ServerHop()
+        end
     else
-        -- Jeśli wszystkie serwery z listy 100 były już odwiedzone, czyścimy bazę i próbujemy od nowa
-        warn("Wszystkie serwery na tej liście już Pan odwiedził. Resetuję pamięć...")
+        -- Jeśli wszystkie serwery były już odwiedzone
+        Rayfield:Notify({Title = "Info", Content = "Brak nowych serwerów. Resetuję pamięć...", Duration = 3})
         writefile("NotSameServers.json", HttpService:JSONEncode({}))
+        task.wait(2)
         return ServerHop()
     end
 end
@@ -1003,4 +1018,5 @@ Rayfield:Notify({
    Image = 4483362458,
 
 })
+
 
