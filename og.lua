@@ -793,64 +793,85 @@ end
 local function ServerHop()
     local PlaceID = game.PlaceId
     local AllIDs = {}
-    local actualHour = os.date("!*t").hour
+    local HttpService = game:GetService("HttpService")
     
+    -- 1. Próba odczytu bazy odwiedzonych serwerów
     local success, fileContent = pcall(function() return readfile("NotSameServers.json") end)
     if success then
-        local decodeSuccess, decodedData = pcall(function() return HttpService:JSONDecode(fileContent) end)
-        if decodeSuccess then AllIDs = decodedData end
-    else
-        table.insert(AllIDs, actualHour)
-        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+        pcall(function() AllIDs = HttpService:JSONDecode(fileContent) end)
     end
 
-    local function TPReturner()
-        local rawData
-        local getSuccess = pcall(function()
-            rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100')
+    -- 2. Główna pętla ponawiania (Retrying)
+    local rawData = nil
+    local attempt = 0
+    
+    while not rawData do
+        attempt = attempt + 1
+        
+        pcall(function()
+            rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Desc&limit=100')
         end)
 
-        if not getSuccess or not rawData then 
-            warn("Nie udało się pobrać listy serwerów.")
-            return false 
-        end
-
-        local decodeSuccess, Site = pcall(function() return HttpService:JSONDecode(rawData) end)
-        if not decodeSuccess or not Site or not Site.data then 
-            warn("Błąd dekodowania danych serwerów.")
-            return false 
+        if not rawData then
+            -- Powiadomienie dla Pana, że trwa walka o listę
+            Rayfield:Notify({
+                Title = "Błąd API (Rate Limit)",
+                Content = "Próba " .. attempt .. ": Roblox blokuje listę. Czekam 15s...",
+                Duration = 5
+            })
+            warn("Próba " .. attempt .. " nieudana. Czekam na odblokowanie limitu...")
+            task.wait(15) -- Dłuższy czas oczekiwania pozwala szybciej zdjąć blokadę
         end
         
-        for _, v in pairs(Site.data) do
-            if v.id ~= game.JobId and tonumber(v.maxPlayers) > tonumber(v.playing) then
-                local isNew = true
-                for _, existing in pairs(AllIDs) do
-                    if tostring(v.id) == tostring(existing) then 
-                        isNew = false 
-                        break 
-                    end
-                end
-                
-                if isNew then
-                    table.insert(AllIDs, tostring(v.id))
-                    writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
-                    
-                    -- PRZYGOTOWANIE DO AUTORUNU
-                    _G.AutoFarmEnabled = true -- Ustawiamy flagę przed ucieczką
-                    QueueScript() 
-                    
-                    local tpSuccess, tpErr = pcall(function()
-                        game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, v.id, LocalPlayer)
-                    end)
-                    if not tpSuccess then warn("Teleport nieudany: " .. tostring(tpErr)) end
-                    return true
-                end
-            end
+        -- Zabezpieczenie: jeśli po 10 próbach nadal nic, spróbujmy zmienić metodę sortowania
+        if attempt > 10 then
+            pcall(function()
+                rawData = game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100')
+            end)
         end
-        return false
     end
 
-    TPReturner()
+    -- 3. Przetwarzanie danych po udanym pobraniu
+    local decodeSuccess, Site = pcall(function() return HttpService:JSONDecode(rawData) end)
+    if not decodeSuccess or not Site.data then 
+        warn("Dane serwerów są uszkodzone, restartuję funkcję...")
+        return ServerHop() 
+    end
+    
+    local possibleServers = {}
+    for _, v in pairs(Site.data) do
+        if v.id ~= game.JobId and tonumber(v.maxPlayers) > tonumber(v.playing) then
+            local isNew = true
+            for _, existing in pairs(AllIDs) do
+                if tostring(v.id) == tostring(existing) then isNew = false break end
+            end
+            if isNew then table.insert(possibleServers, v.id) end
+        end
+    end
+
+    -- 4. Finalny skok
+    if #possibleServers > 0 then
+        local randomID = possibleServers[math.random(1, #possibleServers)]
+        
+        -- Zapisujemy ID, by nie wracać
+        table.insert(AllIDs, tostring(randomID))
+        if #AllIDs > 150 then table.remove(AllIDs, 1) end
+        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+
+        Rayfield:Notify({Title = "Sukces!", Content = "Znaleziono serwer. Teleportacja...", Duration = 3})
+        
+        -- Kolejkujemy skrypt i skaczemy
+        _G.AutoFarmEnabled = true 
+        QueueScript()
+        
+        task.wait(1)
+        game:GetService("TeleportService"):TeleportToPlaceInstance(PlaceID, randomID, game.Players.LocalPlayer)
+    else
+        -- Jeśli wszystkie serwery z listy 100 były już odwiedzone, czyścimy bazę i próbujemy od nowa
+        warn("Wszystkie serwery na tej liście już Pan odwiedził. Resetuję pamięć...")
+        writefile("NotSameServers.json", HttpService:JSONEncode({}))
+        return ServerHop()
+    end
 end
 
 -- --- FUNKCJE POMOCNICZE ---
@@ -982,3 +1003,4 @@ Rayfield:Notify({
    Image = 4483362458,
 
 })
+
