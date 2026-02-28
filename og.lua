@@ -441,37 +441,33 @@ _G.CollectDelay = 500 -- Domyślnie 500ms
 
 -- Sekcja w zakładce Automatic
 TabAuto:CreateToggle({
-    Name = "Auto Mass Collect (All Floors)",
+    Name = "Auto Mass Collect (Dynamic Plot)",
     CurrentValue = false,
+    Flag = "Flag_MassCollect",
     Callback = function(Value)
         _G.AutoMassCollect = Value
         if Value then
             task.spawn(function()
                 while _G.AutoMassCollect do
                     pcall(function()
-                        local plot = workspace:FindFirstChild("Plot_GoogleVelocity")
+                        -- DYNAMICZNE WYKRYWANIE DZIAŁKI PANA
+                        local myPlotName = "Plot_" .. LocalPlayer.Name
+                        local plot = workspace:FindFirstChild(myPlotName) 
+                                     or workspace:FindFirstChild("Plot_DeltaCoreExploit") -- Backup dla starej nazwy
+                        
                         local rootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                         
                         if plot and rootPart then
-                            local floors = {"Floor1", "Floor2", "Floor3"}
-                            
-                            for _, floorName in ipairs(floors) do
-                                local floor = plot:FindFirstChild(floorName)
-                                if floor then
-                                    local slotsFolder = floor:FindFirstChild("Slots")
-                                    if slotsFolder then
-                                        for _, slot in pairs(slotsFolder:GetChildren()) do
-                                            local collectTouch = slot:FindFirstChild("CollectTouch")
-                                            if collectTouch then
-                                                -- Natychmiastowa symulacja dotyku
-                                                task.spawn(function()
-                                                    firetouchinterest(rootPart, collectTouch, 0)
-                                                    task.wait()
-                                                    firetouchinterest(rootPart, collectTouch, 1)
-                                                end)
-                                            end
-                                        end
-                                    end
+                            -- Skanujemy wszystkie obiekty wewnątrz działki, żeby znaleźć CollectTouch
+                            -- bez względu na to, czy są w Floor1, Floor2 czy nowym folderze
+                            for _, descendant in pairs(plot:GetDescendants()) do
+                                if descendant.Name == "CollectTouch" and descendant:IsA("BasePart") then
+                                    -- Symulacja dotyku (FireTouchInterest)
+                                    task.spawn(function()
+                                        firetouchinterest(rootPart, descendant, 0) -- Dotyk
+                                        task.wait()
+                                        firetouchinterest(rootPart, descendant, 1) -- Zwolnienie
+                                    end)
                                 end
                             end
                         end
@@ -1023,6 +1019,7 @@ Rayfield:Notify({
    Image = 4483362458,
 
 })
+
 
 
 
