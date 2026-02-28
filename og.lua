@@ -437,48 +437,39 @@ TabAuto:CreateToggle({
 })
 -- Zmienne globalne dla nowych funkcji
 _G.AutoMassCollect = false
-_G.CollectDelay = 500 -- Domyślnie 500ms
+_G.CollectDelay = 500
 
 -- Sekcja w zakładce Automatic
 TabAuto:CreateToggle({
-    Name = "Auto Mass Collect (All Floors)",
+    Name = "Auto Mass Collect (Dynamic Floors)",
     CurrentValue = false,
+    Flag = "Flag_MassCollectDynamic", 
     Callback = function(Value)
         _G.AutoMassCollect = Value
         if Value then
             task.spawn(function()
                 while _G.AutoMassCollect do
                     pcall(function()
+                        -- Dynamiczne wykrycie Pana działki na podstawie Pana nicku
                         local myPlotName = "Plot_" .. LocalPlayer.Name
                         local plot = workspace:FindFirstChild(myPlotName)
-                        
                         local rootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                         
                         if plot and rootPart then
-                            local floors = {"Floor1", "Floor2", "Floor3"}
-                            
-                            for _, floorName in ipairs(floors) do
-                                local floor = plot:FindFirstChild(floorName)
-                                if floor then
-                                    local slotsFolder = floor:FindFirstChild("Slots")
-                                    if slotsFolder then
-                                        for _, slot in pairs(slotsFolder:GetChildren()) do
-                                            local collectTouch = slot:FindFirstChild("CollectTouch")
-                                            if collectTouch then
-                                                -- Natychmiastowa symulacja dotyku
-                                                task.spawn(function()
-                                                    firetouchinterest(rootPart, collectTouch, 0)
-                                                    task.wait()
-                                                    firetouchinterest(rootPart, collectTouch, 1)
-                                                end)
-                                            end
-                                        end
-                                    end
+                            -- Skanujemy całą działkę w poszukiwaniu WSZYSTKICH pięter i slotów
+                            for _, obj in pairs(plot:GetDescendants()) do
+                                if obj.Name == "CollectTouch" and obj:IsA("BasePart") then
+                                    -- Symulacja dotyku (natychmiastowa)
+                                    task.spawn(function()
+                                        firetouchinterest(rootPart, obj, 0)
+                                        task.wait()
+                                        firetouchinterest(rootPart, obj, 1)
+                                    end)
                                 end
                             end
                         end
                     end)
-                    -- Czekaj tyle milisekund, ile ustawiono na suwaku
+                    -- Prędkość zsynchronizowana z Pana suwakiem
                     task.wait(_G.CollectDelay / 1000)
                 end
             end)
@@ -492,6 +483,7 @@ TabAuto:CreateSlider({
    Increment = 100,
    Suffix = "ms",
    CurrentValue = 500,
+   Flag = "Flag_CollectSpeed", -- Flaga dodana, aby zapisywać prędkość
    Callback = function(Value)
       _G.CollectDelay = Value
    end,
@@ -1025,6 +1017,7 @@ Rayfield:Notify({
    Image = 4483362458,
 
 })
+
 
 
 
